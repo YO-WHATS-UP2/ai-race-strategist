@@ -1,0 +1,126 @@
+app:
+  id: ari:cloud:ecosystem::app/dba18498-5391-4284-b2c7-72082d7cfe0a
+  runtime:
+    name: nodejs20.x
+
+permissions:
+  scopes:
+    - storage:app
+    - read:jira-work
+    - write:jira-work
+    - read:content-details:confluence
+    - read:content.property:confluence
+    - write:content.property:confluence
+    - read:chat:rovo
+  external:
+    fetch:
+      backend:
+        - https://api.bitbucket.org
+
+providers:
+  auth:
+    - key: bitbucket-oauth
+      name: Bitbucket Cloud
+      type: oauth2
+      clientId: FX7ZJYPSmSfRXYhd26
+      clientSecret: 3hnr9Ps8MFQSrTuCHX22KMJmuNp79Ls2
+      remotes:
+        - bitbucket-api
+      bearerMethod: authorization-header
+      scopes:
+        - account
+        - repository
+      actions:
+        authorization:
+          remote: bitbucket-api
+          path: /site/oauth2/authorize
+        exchange:
+          remote: bitbucket-api
+          path: /site/oauth2/access_token
+        retrieveProfile:
+          remote: bitbucket-api
+          path: /2.0/user
+          resolvers:
+            id: account_id
+            displayName: display_name
+            avatarUrl: links.avatar.href
+
+remotes:
+  - key: bitbucket-api
+    baseUrl: https://bitbucket.org
+
+# Keep v1 modules (UI + functions)
+modules:
+  confluence:contextMenu:
+    - key: dictionary
+      function: main
+      title: Define word
+
+  function:
+    - key: main
+      handler: index.run
+      providers:
+        auth:
+          - bitbucket-oauth
+
+    # Router / UI resolver
+    - key: main-resolver
+      handler: index.mainResolver
+      providers:
+        auth:
+          - bitbucket-oauth
+
+    # Invoke wrapper (used by trigger to call Rovo action)
+    - key: invoke-create-draft
+      handler: index.invokeCreateDraft
+      providers:
+        auth:
+          - bitbucket-oauth
+
+    # Concrete action handlers exported from your index.js
+    - key: cddh
+      handler: index.createDesignDraftHandler
+      providers:
+        auth:
+          - bitbucket-oauth
+
+    - key: psh
+      handler: index.prescribeSolutionHandler
+      providers:
+        auth:
+          - bitbucket-oauth
+    - key: trigger-fn
+      handler: index.triggerHandler
+      providers:
+        auth:
+          - bitbucket-oauth
+
+  trigger:
+    - key: issue-created-trigger
+      function: trigger-fn
+      events:
+        - avi:jira:created:issue
+
+# Rovo actions (v2-style, in your hybrid deployment this is accepted)
+extensions:
+  rovo:action:
+    - key: action-create-draft
+      name: Create Design Draft
+      description: Generates a Confluence design draft from Jira issue context.
+      function: cddh
+      inputs:
+        - name: jiraTicketKey
+          type: string
+          required: true
+
+    - key: action-prescribe-solution
+      name: Prescribe Failure Solution
+      description: Performs failure analysis and returns potential redesign guidance.
+      function: psh
+      inputs:
+        - name: jiraTicketKey
+          type: string
+          required: true
+        - name: failureData
+          type: string
+          required: true
