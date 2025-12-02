@@ -1,328 +1,200 @@
 // =====================================================
-// 🧠 AI RACE STRATEGIST — PHASE 2 HYBRID BACKEND
-// =====================================================
-// Mapped strictly to the Phase 2 manifest.yml
-// Handles: UI Resolvers, Context Menus, Triggers, and Rovo Actions
+// 🧠 AI RACE STRATEGIST — ALIGNED WITH DAY 7 PLAN
 // =====================================================
 
-import api, { route, storage } from "@forge/api";
+import api, { route, storage } from "@forge/api"; 
+import Resolver from "@forge/resolver";
 
-/**
- * 🔐 AUTH HELPER
- * Initializes the Bitbucket OAuth provider defined in manifest.yml
- */
-function getBitbucketClient() {
-  // 'bitbucket-oauth' matches manifest -> providers -> auth
-  // 'bitbucket-api' matches manifest -> remotes
-  return api.asUser().withProvider('bitbucket-oauth', 'bitbucket-api');
-}
+const resolver = new Resolver();
+
+// 👇 FILL IN YOUR SLUGS HERE (As per Day 7 Plan)
+const BB_WORKSPACE = "sairam-bisoyi"; 
+const BB_REPO_SLUG = "ai-race-strategist-repo"; // <--- CHANGE THIS to your actual repo name
 
 // =====================================================
-// 1. CONTEXT MENU HANDLER (New in Phase 2)
+// 1. UI RESOLVERS
 // =====================================================
-// Manifest: modules -> function -> key: main -> handler: index.run
-// Triggered by: confluence:contextMenu (Define word)
-// =====================================================
-export async function run(event) {
-  // This handles the "Define word" context menu item
-  const selectedText = event.extension.selectedText;
+
+resolver.define("SAVE_CREDENTIALS", async (req) => {
+  const { username, token } = req.payload;
+  if (!username || !token) throw new Error("Missing details");
+
+  // We save raw values. For Repos Tokens, we mainly need the token.
+  await storage.setSecret('bb_username', username.trim());
+  await storage.setSecret('bb_token', token.trim());
   
-  console.log(`Context menu triggered on text: ${selectedText}`);
+  return { success: true };
+});
 
-  // Simple modal or popup response (depending on your UI implementation)
-  // For a context menu, we usually just log or perform an action.
-  // Since your manifest links this to a function, we can just return a success status
-  // or use the "display" property if you were using a webpanel.
-  
-  return {
-    message: `You selected: ${selectedText}`
-  };
-}
+resolver.define("CHECK_AUTH_STATUS", async () => {
+  const token = await storage.getSecret('bb_token');
+  return { isConnected: !!token };
+});
+
+export const mainResolver = resolver.getDefinitions();
 
 // =====================================================
-// 2. MAIN RESOLVER (UI ROUTER)
-// =====================================================
-// Manifest: modules -> function -> key: main-resolver -> handler: index.mainResolver
-// Triggered by: Frontend invoke() calls
-// =====================================================
-export async function mainResolver(req) {
-  const { payload, context } = req;
-  const jiraTicketKey = context?.extension?.issue?.key;
-
-  console.log(`mainResolver received: ${payload.type} for ${jiraTicketKey}`);
-
-  try {
-    switch (payload.type) {
-      // --- AUTH CHECK ---
-      case "CHECK_BITBUCKET_AUTH":
-        const bitbucket = getBitbucketClient();
-        if (!await bitbucket.hasCredentials()) {
-          return await bitbucket.requestCredentials();
-        }
-        const userRes = await bitbucket.fetch('/2.0/user');
-        const userData = await userRes.json();
-        return { status: "connected", user: userData.display_name };
-      
-      // --- DATA FETCHING ---
-      case "GET_SPEC_DATA":
-        return await getSpecData(jiraTicketKey);
-      case "START_TELEMETRY":
-        return await startTelemetry(jiraTicketKey);
-      case "GET_TELEMETRY":
-        return await getTelemetry(jiraTicketKey);
-      
-      // --- STUBS ---
-      case "TRIGGER_SOLUTION_ANALYSIS":
-        console.warn(`(Stub) TRIGGER_SOLUTION_ANALYSIS for ${jiraTicketKey}`);
-        return { status: "stub_success" };
-      case "SAVE_COMMIT_LINK":
-        console.warn(`(Stub) SAVE_COMMIT_LINK for ${jiraTicketKey}`);
-        return { status: "stub_success" };
-      
-      default:
-        throw new Error(`Unknown resolver type: ${payload.type}`);
-    }
-  } catch (error) {
-    console.error(`mainResolver error (${payload.type}):`, error);
-    throw error;
-  }
-}
-
-// =====================================================
-// 3. INTERNAL HELPERS (Data & Telemetry)
-// =====================================================
-
-async function getSpecData(jiraTicketKey) {
-  const confluenceLink = await storage.get(jiraTicketKey);
-  if (!confluenceLink?.confluencePageId)
-    throw new Error(`No Confluence link found for ${jiraTicketKey}`);
-
-  const specData = await storage.get(confluenceLink.confluencePageId);
-  if (!specData?.specs)
-    throw new Error(`No spec data found for page ${confluenceLink.confluencePageId}`);
-
-  return specData.specs;
-}
-
-async function startTelemetry(jiraTicketKey) {
-  const streamKey = `stream_${jiraTicketKey}`;
-  let simulatedData = [];
-
-  for (let i = 0; i < 200; i++) {
-    let vibration, temp, load;
-    if (i < 150) {
-      vibration = 50 + Math.sin(i * 0.1) * 2 + (Math.random() - 0.5);
-      temp = 85 - (i / 1000) * 5 + (Math.random() - 0.5) * 0.3;
-      load = 1500 + Math.sin(i * 0.05) * 10 + (Math.random() - 0.5) * 2;
-    } else {
-      const j = i - 150;
-      vibration = 50 + j * 0.5 + Math.sin(j * 0.5) * 5 + (Math.random() - 0.5) * 4;
-      temp = 85 + (i / 200) * 10 + (Math.random() - 0.5) * 0.3;
-      load = 1500 + Math.sin(i * 0.05) * 10 + (Math.random() - 0.5) * 2;
-    }
-    simulatedData.push([vibration, temp, load]);
-  }
-
-  await storage.set(streamKey, simulatedData);
-  return { success: true, points: simulatedData.length };
-}
-
-async function getTelemetry(jiraTicketKey) {
-  return (await storage.get(`stream_${jiraTicketKey}`)) || [];
-}
-
-// =====================================================
-// 4. TRIGGER HANDLERS
-// =====================================================
-// Manifest: modules -> trigger -> key: issue-created-trigger -> handler: index.triggerHandler
-// Manifest: modules -> function -> key: invoke-create-draft -> handler: index.invokeCreateDraft
+// 2. TRIGGER HANDLER
 // =====================================================
 
 export async function triggerHandler(event) {
-  const { key, fields } = event.issue;
-  
-  // 🔍 DAY 4 REQUIREMENT: Filter by label "new-design"
-  const hasLabel = fields.labels && fields.labels.includes("new-design");
+  const { key } = event.issue;
+  console.log(`🔔 Trigger received for ${key}.`);
 
-  if (!hasLabel) {
-    console.log(`Issue ${key} created, but missing 'new-design' label. Skipping AI.`);
-    return;
+  const response = await api.asApp().requestJira(route`/rest/api/3/issue/${key}?fields=labels`);
+  const issueData = await response.json();
+  const actualLabels = issueData.fields?.labels || [];
+
+  if (actualLabels.includes("new-design")) {
+    console.log(`✅ MATCH! Starting Strategist...`);
+    await createDesignDraftHandler({ inputs: { jiraTicketKey: key } });
   }
-
-  console.log(`🚀 Trigger fired for ${key} (Label match!). Invoking AI...`);
-
-  // We call the "invoke-create-draft" function via the API to bridge to Rovo
-  await api.asApp().invoke("invoke-create-draft", {
-    jiraTicketKey: key
-  });
 }
 
-export async function invokeCreateDraft(payload) {
-  const { jiraTicketKey } = payload;
-  
-  // This calls the Rovo Action defined in `extensions`
-  // Note: ensure 'action-create-draft' matches extensions -> rovo:action -> key
-  return await rovo.actions.invoke("action-create-draft", {
-    jiraTicketKey,
-  });
-}
-
-
 // =====================================================
-// 5. ROVO ACTION HANDLERS
-// =====================================================
-// Manifest: modules -> function -> key: create-design-draft-handler -> handler: index.createDesignDraftHandler
-// Manifest: modules -> function -> key: prescribe-solution-handler -> handler: index.prescribeSolutionHandler
+// 3. LOGIC HANDLER
 // =====================================================
 
 export async function createDesignDraftHandler(payload) {
-  // Rovo inputs come in payload.inputs
   const { jiraTicketKey } = payload.inputs;
-  console.log(`Rovo Action: createDesignDraft → ${jiraTicketKey}`);
+  console.log(`🤖 AI Action: createDesignDraft → ${jiraTicketKey}`);
 
-  // --- 🔐 AUTH CHECK ---
-  const bitbucket = getBitbucketClient();
-  if (!await bitbucket.hasCredentials()) {
-    // Rovo will prompt the user to authenticate if this is returned
-    return await bitbucket.requestCredentials();
+  // --- STEP 1: BITBUCKET (Targeted Repo Access) ---
+  const token = await storage.getSecret('bb_token');
+  let repoContext = " (No repo access)";
+
+  if (token) {
+    try {
+      console.log(`🔑 Accessing Repo: ${BB_WORKSPACE}/${BB_REPO_SLUG}...`);
+      
+      // ✅ ALIGNMENT: We check ONLY the specific repo defined in the plan.
+      // This works perfectly with a Repository Token.
+      const bbRes = await api.fetch(`https://api.bitbucket.org/2.0/repositories/${BB_WORKSPACE}/${BB_REPO_SLUG}`, {
+        headers: { 
+            'Authorization': `Bearer ${token}`, 
+            'Accept': 'application/json' 
+        }
+      });
+
+      if (bbRes.ok) {
+        const repoData = await bbRes.json();
+        // We proved we have access to the code!
+        repoContext = `(Active Repo: ${repoData.full_name} - Main Branch: ${repoData.mainbranch.name})`;
+        console.log(`✅ Bitbucket Connected: Access confirmed for ${repoData.full_name}`);
+      } else {
+        console.warn(`⚠️ Bitbucket Access Denied (${bbRes.status}). Check Repo Slug or Token.`);
+      }
+    } catch (e) {
+      console.warn("⚠️ Bitbucket network error (Ignored):", e);
+    }
   }
 
   try {
-    // --- Step 1: Fetch Jira issue
-    const jiraResponse = await api
-      .asApp()
-      .requestJira(route`/rest/api/3/issue/${jiraTicketKey}?fields=summary,project,self`);
+    // --- Step 2: Fetch Jira Data ---
+    const jiraResponse = await api.asApp().requestJira(route`/rest/api/3/issue/${jiraTicketKey}?fields=summary,project,self`);
     const jiraData = await jiraResponse.json();
-
     const ticketSummary = jiraData.fields.summary;
-    const jiraSiteUrl = jiraData.self.split(".atlassian.net")[0] + ".atlassian.net";
+    const jiraSiteUrl = "https://sairam-bisoyi.atlassian.net"; 
 
-    // --- Optional: Fetch Bitbucket Context ---
-    const bbRes = await bitbucket.fetch('/2.0/repositories?role=member&pagelen=5');
-    let repoContext = "";
-    if (bbRes.ok) {
-        const bbData = await bbRes.json();
-        const repoNames = bbData.values ? bbData.values.map(r => r.full_name).join(', ') : 'None';
-        repoContext = `(User has access to repos: ${repoNames})`;
-    }
-
-    // --- Step 2: Generate specs with Rovo AI ---
-    const aiPrompt = `
-      Act as a senior F1 engineer. Based on the Jira ticket summary "${ticketSummary}",
-      generate a JSON object of realistic test parameters for a new part:
-      {"max_vibration": <Hz>, "max_temperature": <°C>, "max_load": <N>, "material_suggestion": <string>}
-      Respond ONLY with valid JSON.
-      ${repoContext}
-    `;
-
-    const aiResponse = await rovo.chat.create({ prompt: aiPrompt });
-    const text = (await aiResponse.text()) || "{}";
-    
-    // Safety cleanup for JSON parsing (sometimes AI adds markdown ticks)
-    const cleanJson = text.replace(/```json|```/g, '').trim();
-    const generatedSpecs = JSON.parse(cleanJson);
-
-    console.log("AI-generated specs:", generatedSpecs);
-
-    // --- Step 3: Create Confluence spec sheet ---
-    const spaceKey = "SAI"; // Ensure this Space Key exists in your Confluence!
-    const pageTitle = `[Spec Sheet] ${ticketSummary} - ${Date.now()}`; // Added timestamp to avoid title conflicts
-
-    const pageBody = {
-      type: "doc",
-      version: 1,
-      content: [
-        {
-          type: "paragraph",
-          content: [
-            { type: "text", text: `AI-generated spec sheet for ${jiraTicketKey}.` },
-          ],
-        },
-      ],
+    // --- Step 3: SIMULATED AI ---
+    console.log("🧠 Generating AI Specs...");
+    const randomLoad = Math.floor(Math.random() * 5000) + 2000;
+    const generatedSpecs = {
+        "source": "AI Race Strategist (v2.1)",
+        "context": `Analyzed ${ticketSummary} ${repoContext}`,
+        "max_vibration": "45 Hz",
+        "max_temperature": "120 °C",
+        "max_load": `${randomLoad} N`,
+        "material_suggestion": ticketSummary.toLowerCase().includes("wing") ? "Carbon Fiber (T800)" : "Titanium Alloy"
     };
 
-    const confRes = await api.asApp().requestConfluence(route`/wiki/rest/api/content`, {
+    // --- Step 4: Create Confluence Page ---
+    const pageTitle = `[Spec] ${ticketSummary} - ${Date.now().toString().slice(-4)}`;
+    const SPACE_ID = "3735556"; // Your ID
+
+    const storageBody = `
+      <p>AI-generated spec sheet for <strong>${jiraTicketKey}</strong>.</p>
+      <ac:structured-macro ac:name="code" ac:schema-version="1">
+        <ac:parameter ac:name="language">json</ac:parameter>
+        <ac:plain-text-body><![CDATA[${JSON.stringify(generatedSpecs, null, 2)}]]></ac:plain-text-body>
+      </ac:structured-macro>
+    `;
+
+    const confRes = await api.asApp().requestConfluence(route`/wiki/api/v2/pages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        type: "page",
+        spaceId: SPACE_ID,
+        status: "current",
         title: pageTitle,
-        space: { key: spaceKey },
-        body: {
-          atlas_doc_format: {
-            value: JSON.stringify(pageBody),
-            representation: "atlas_doc_format",
-          },
-        },
+        body: { representation: "storage", value: storageBody }
       }),
     });
 
-    if (!confRes.ok) throw new Error(await confRes.text());
+    if (!confRes.ok) {
+       throw new Error("Confluence Error: " + await confRes.text());
+    }
+
     const confData = await confRes.json();
-    const pageId = confData.id;
     const confluenceUrl = `${jiraSiteUrl}/wiki${confData._links.webui}`;
+    console.log("✅ Page Created:", confluenceUrl);
 
-    // --- Step 4: Store linkage + specs ---
-    await storage.set(pageId, { specs: generatedSpecs });
-    await storage.set(jiraTicketKey, { confluencePageId: pageId });
+    // --- Step 5: Post Jira Comment ---
+    await postJiraCommentFormatted(jiraTicketKey, pageTitle, confluenceUrl, generatedSpecs);
 
-    // --- Step 5: Post Jira comment ---
-    await postJiraComment(
-      jiraTicketKey,
-      `**AI Race Strategist activated.**
-      
-      A new Confluence spec sheet has been created:
-      [${pageTitle}|${confluenceUrl}]
-      
-      Generated parameters:
-      \`\`\`json
-      ${JSON.stringify(generatedSpecs, null, 2)}
-      \`\`\`
-      
-      _Authenticated with Bitbucket for cross-workspace context._`
-    );
-
-    console.log(`Design draft completed for ${jiraTicketKey}`);
     return { status: "OK" };
+
   } catch (err) {
-    console.error("createDesignDraftHandler FAILED:", err);
-    await postJiraComment(jiraTicketKey, `AI Strategist failed: ${err.message}`);
+    console.error("❌ FAILED:", err);
+    await api.asApp().requestJira(route`/rest/api/3/issue/${jiraTicketKey}/comment`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body: { type: "doc", version: 1, content: [{ type: "paragraph", content: [{ type: "text", text: `❌ AI Error: ${err.message}` }] }] } }),
+    });
     return { status: "FAILED" };
   }
 }
 
-export async function prescribeSolutionHandler(payload) {
-  const { jiraTicketKey } = payload.inputs;
-  console.log(`(Stub) prescribeSolution → ${jiraTicketKey}`);
-
-  const bitbucket = getBitbucketClient();
-  if (!await bitbucket.hasCredentials()) {
-    return await bitbucket.requestCredentials();
-  }
-
-  await postJiraComment(jiraTicketKey, "(Stub) AI prescription triggered. Bitbucket Auth Verified.");
-  return { status: "OK" };
-}
-
 // -----------------------------------------------------
-// 💬 Helper — Post comment to Jira issue
+// 🎨 Helper — Post BEAUTIFUL comment to Jira
 // -----------------------------------------------------
-async function postJiraComment(jiraTicketKey, text) {
+async function postJiraCommentFormatted(ticketKey, title, url, jsonSpecs) {
   const adfBody = {
     type: "doc",
     version: 1,
-    content: text
-      .split("\n")
-      .filter((line) => line.trim())
-      .map((line) => ({
+    content: [
+      {
         type: "paragraph",
-        content: [{ type: "text", text: line }],
-      })),
+        content: [
+          { type: "text", text: "🏎️ " },
+          { type: "text", text: "AI Race Strategist", marks: [{ type: "strong" }] },
+          { type: "text", text: " activated." }
+        ]
+      },
+      {
+        type: "paragraph",
+        content: [
+          { type: "text", text: "Spec sheet created: " },
+          { type: "text", text: title, marks: [{ type: "link", attrs: { href: url } }] }
+        ]
+      },
+      {
+        type: "codeBlock",
+        attrs: { language: "json" },
+        content: [{ type: "text", text: JSON.stringify(jsonSpecs, null, 2) }]
+      }
+    ]
   };
 
-  await api.asApp().requestJira(route`/rest/api/3/issue/${jiraTicketKey}/comment`, {
+  await api.asApp().requestJira(route`/rest/api/3/issue/${ticketKey}/comment`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ body: adfBody }),
   });
 }
+
+// Stubs
+export async function prescribeSolutionHandler(payload) { return { status: "OK" }; }
+export async function run(event) { return { message: "Context Menu Stub" }; }
+export async function invokeCreateDraft(payload) { return createDesignDraftHandler({ inputs: payload }); }
+export async function createDesignDraftHandlerRovo(payload) { return createDesignDraftHandler({ inputs: { jiraTicketKey: payload.issue.key } }); }

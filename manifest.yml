@@ -1,5 +1,5 @@
 app:
-  id: ari:cloud:ecosystem::app/dba18498-5391-4284-b2c7-72082d7cfe0a
+  id: ari:cloud:ecosystem::app/c7104b49-0a91-46dc-b2c6-de1b156b9b96
   runtime:
     name: nodejs20.x
 
@@ -10,20 +10,35 @@ permissions:
     - write:jira-work
     - read:content-details:confluence
     - read:content.property:confluence
+    - read:confluence-content.all
+    - write:confluence-content
+    - read:space:confluence
+    - write:page:confluence
     - write:content.property:confluence
     - read:chat:rovo
+  content:
+    styles:
+      - 'unsafe-inline'
+    scripts:
+      - 'unsafe-inline'
+      - 'unsafe-eval'
+      
   external:
     fetch:
       backend:
         - https://api.bitbucket.org
+      client:
+        - 'https://esm.sh'
+    images:
+      - https://cdn-icons-png.flaticon.com
+    
 
 providers:
   auth:
-    - key: bitbucket-oauth
+    - key: bitbucket-oauth-v2
       name: Bitbucket Cloud
       type: oauth2
-      clientId: FX7ZJYPSmSfRXYhd26
-      clientSecret: 3hnr9Ps8MFQSrTuCHX22KMJmuNp79Ls2
+      clientId: "waVaGANqwNGGRqMapM"
       remotes:
         - bitbucket-api
       bearerMethod: authorization-header
@@ -32,12 +47,15 @@ providers:
         - repository
       actions:
         authorization:
-          remote: bitbucket-api
+          # ✅ FIX 1: Points to the WEBSITE remote (not API)
+          remote: bitbucket-website
           path: /site/oauth2/authorize
         exchange:
-          remote: bitbucket-api
+          # ✅ FIX 2: Points to the WEBSITE remote
+          remote: bitbucket-website
           path: /site/oauth2/access_token
         retrieveProfile:
+          # Keep this pointing to API
           remote: bitbucket-api
           path: /2.0/user
           resolvers:
@@ -47,9 +65,12 @@ providers:
 
 remotes:
   - key: bitbucket-api
+    baseUrl: https://api.bitbucket.org
+  
+  # ✅ FIX 3: Added the Website URL for Login
+  - key: bitbucket-website
     baseUrl: https://bitbucket.org
 
-# Keep v1 modules (UI + functions)
 modules:
   confluence:contextMenu:
     - key: dictionary
@@ -61,39 +82,37 @@ modules:
       handler: index.run
       providers:
         auth:
-          - bitbucket-oauth
+          - bitbucket-oauth-v2
 
-    # Router / UI resolver
     - key: main-resolver
       handler: index.mainResolver
       providers:
         auth:
-          - bitbucket-oauth
+          - bitbucket-oauth-v2
 
-    # Invoke wrapper (used by trigger to call Rovo action)
     - key: invoke-create-draft
       handler: index.invokeCreateDraft
       providers:
         auth:
-          - bitbucket-oauth
+          - bitbucket-oauth-v2
 
-    # Concrete action handlers exported from your index.js
     - key: cddh
       handler: index.createDesignDraftHandler
       providers:
         auth:
-          - bitbucket-oauth
+          - bitbucket-oauth-v2
 
     - key: psh
       handler: index.prescribeSolutionHandler
       providers:
         auth:
-          - bitbucket-oauth
+          - bitbucket-oauth-v2
+
     - key: trigger-fn
       handler: index.triggerHandler
       providers:
         auth:
-          - bitbucket-oauth
+          - bitbucket-oauth-v2
 
   trigger:
     - key: issue-created-trigger
@@ -101,7 +120,24 @@ modules:
       events:
         - avi:jira:created:issue
 
-# Rovo actions (v2-style, in your hybrid deployment this is accepted)
+  # ✅ Global Page (The "Emergency Entrance" for Login)
+  jira:globalPage:
+    - key: pit-wall-global
+      resource: pit-wall-resource
+      resolver:
+        function: main-resolver
+      title: 🏁 Pit Wall Auth
+      icon: https://cdn-icons-png.flaticon.com/512/555/555646.png
+
+  # ✅ Issue Panel (The main UI on tickets)
+  jira:issuePanel:
+    - key: pit-wall-panel
+      resource: pit-wall-resource
+      resolver:
+        function: main-resolver
+      title: 🏁 Pit Wall
+      icon: https://cdn-icons-png.flaticon.com/512/555/555646.png
+
 extensions:
   rovo:action:
     - key: action-create-draft
@@ -124,3 +160,7 @@ extensions:
         - name: failureData
           type: string
           required: true
+
+resources:
+  - key: pit-wall-resource
+    path: static/pit-wall

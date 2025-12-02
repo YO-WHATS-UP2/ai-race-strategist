@@ -50,3 +50,9 @@ Thumbs.db
 
 
 /.forge/
+node_modules/
+.forge/
+out/
+build/
+.DS_Store
+.env
