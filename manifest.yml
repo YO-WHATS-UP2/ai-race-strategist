@@ -29,6 +29,7 @@ permissions:
         - https://api.bitbucket.org
       client:
         - 'https://esm.sh'
+        - 'https://api.openai.com'
         
     images:
       - https://cdn-icons-png.flaticon.com
