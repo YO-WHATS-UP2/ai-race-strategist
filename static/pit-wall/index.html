@@ -112,24 +112,37 @@
   <div class="card">
     <h3>🛠️ Solution Simulator (What-If)</h3>
     
-    <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
-        <div style="width: 45%;">
-            <label>Material Thickness (mm)</label>
-            <input type="range" id="inputThickness" min="3.0" max="10.0" step="0.1" value="5.0" style="width: 100%;">
-            <span id="valThickness" style="color: #579DFF; font-weight: bold;">5.0 mm</span>
+    <div style="display: flex; gap: 20px;">
+        
+        <div style="flex: 1;">
+            <div style="margin-bottom: 15px;">
+                <label>Material Thickness (mm)</label>
+                <input type="range" id="inputThickness" min="3.0" max="10.0" step="0.1" value="5.0" style="width: 100%;">
+                <div style="display: flex; justify-content: space-between;">
+                    <span style="font-size: 10px; color: #8993A4;">3.0mm</span>
+                    <span id="valThickness" style="color: #579DFF; font-weight: bold;">5.0 mm</span>
+                    <span style="font-size: 10px; color: #8993A4;">10.0mm</span>
+                </div>
+            </div>
+
+            <div>
+                <label>Aero Load (N)</label>
+                <input type="range" id="inputLoad" min="1000" max="2000" step="10" value="1500" style="width: 100%;">
+                <div style="display: flex; justify-content: space-between;">
+                    <span style="font-size: 10px; color: #8993A4;">1000N</span>
+                    <span id="valLoad" style="color: #579DFF; font-weight: bold;">1500 N</span>
+                    <span style="font-size: 10px; color: #8993A4;">2000N</span>
+                </div>
+            </div>
+
+            <div style="margin-top: 20px; background: #091E42; padding: 10px; border-radius: 5px; text-align: center; border: 1px solid #579DFF;">
+                <span style="color: #8993A4; font-size: 10px; text-transform: uppercase;">Projected Vibration</span>
+                <div id="predVibration" style="font-size: 20px; font-weight: bold; color: white;">-- Hz</div>
+            </div>
         </div>
 
-        <div style="width: 45%;">
-            <label>Aero Load (N)</label>
-            <input type="range" id="inputLoad" min="1000" max="2000" step="10" value="1500" style="width: 100%;">
-            <span id="valLoad" style="color: #579DFF; font-weight: bold;">1500 N</span>
-        </div>
-    </div>
-
-    <div style="background: #091E42; padding: 15px; border-radius: 5px; text-align: center; border: 1px solid #579DFF;">
-        <span style="color: #8993A4; font-size: 12px; text-transform: uppercase;">AI Predicted Vibration</span>
-        <div id="predVibration" style="font-size: 24px; font-weight: bold; color: white; margin-top: 5px;">
-            -- Hz
+        <div style="flex: 1; height: 180px;">
+            <canvas id="impactChart"></canvas>
         </div>
     </div>
   </div>

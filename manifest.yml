@@ -15,7 +15,6 @@ permissions:
     - read:space:confluence
     - write:page:confluence
     - write:content.property:confluence
-    - read:chat:rovo
   content:
     styles:
       - 'unsafe-inline'
@@ -78,7 +77,9 @@ modules:
     - key: dictionary
       function: main
       title: Define word
-
+  webtrigger:
+    - key: iot-telemetry-trigger
+      function: ith
   function:
     - key: main
       handler: index.run
@@ -115,12 +116,15 @@ modules:
       providers:
         auth:
           - bitbucket-oauth-v2
+    - key: ith
+      handler: index.ingestTelemetry
 
   trigger:
     - key: issue-created-trigger
       function: trigger-fn
       events:
         - avi:jira:created:issue
+  
 
   # ✅ Global Page (The "Emergency Entrance" for Login)
   jira:globalPage:

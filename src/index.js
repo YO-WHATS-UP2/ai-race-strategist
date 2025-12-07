@@ -394,6 +394,26 @@ export async function createDesignDraftHandler(payload) {
   // Ensure you merge your "Create Page" logic here if you need it active!
   return { status: "OK" };
 }
+export async function ingestTelemetry(request) {
+    try {
+        const body = JSON.parse(request.body);
+        console.log("📡 IoT Data Received:", body);
+
+        // Save latest frame to storage
+        // We use a fixed key so the frontend always reads the "latest"
+        await storage.set('live_telemetry', body);
+
+        return { body: JSON.stringify({ status: "Received" }), statusCode: 200 };
+    } catch (e) {
+        return { body: JSON.stringify({ error: e.message }), statusCode: 500 };
+    }
+}
+
+// 2. READ (Called by Frontend via Bridge)
+resolver.define("fetchLiveTelemetry", async () => {
+    const data = await storage.get('live_telemetry');
+    return data || null;
+});
 
 // Manifest Stubs
 export async function prescribeSolutionHandlerExport(payload) { return prescribeSolutionHandler(payload); }

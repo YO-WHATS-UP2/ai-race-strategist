@@ -8,7 +8,9 @@ let modelSimulator;
 let isSimulationRunning = false;
 let isFailureReported = false;
 let timeStep = 0;
-
+let impactChart; // New Chart instance
+let lastCrashVibration = 55.0; // Default placeholder until real crash
+let isIoMode = true;
 // Rolling buffer for LSTM
 const SEQUENCE_LENGTH = 10;
 let dataBuffer = []; 
@@ -113,21 +115,47 @@ function startTestRun() {
 }
 
 // --- SIMULATION LOOP ---
+// Global toggle: Set to true to listen for Python Data
+
 async function simulateTelemetryLoop() {
     if (!isSimulationRunning) return;
 
-    // 1. Physics Engine (Normal vs Chaos)
-    const isChaosMode = timeStep > 60; // Chaos starts after ~1 second
-    
-    let vibration = 50 + Math.sin(timeStep * 0.1) * 2 + (Math.random() - 0.5);
-    let temp = 85 + (timeStep * 0.01) + (Math.random() * 0.2);
-    let load = 1500 + Math.sin(timeStep * 0.05) * 10;
+    let vibration, temp, load;
 
-    if (isChaosMode) {
-        vibration += (timeStep - 60) * 0.8 + (Math.random() * 5); // Aggressive Spike
+    // --- OPTION A: LIVE IOT MODE ---
+    if (isIoMode) {
+        try {
+            // 1. Ask Forge Storage for the latest data packet
+            const latest = await bridge.invoke('fetchLiveTelemetry');
+            
+            if (latest && latest.timestamp) {
+                vibration = latest.vibration;
+                temp = latest.temperature;
+                load = latest.aero_load;
+                // Log occasionally to confirm connection
+                if (timeStep % 5 === 0) console.log("📡 Receiving IoT Data:", latest);
+            } 
+        } catch (e) {
+            console.warn("⚠️ IoT Polling Error (Falling back to Simulation):", e);
+            isIoMode = false; // Switch to math mode automatically on error
+        }
     }
 
-    // 2. Preprocessing (CORRECTED to match Python StandardScaler)
+    // --- OPTION B: MATH SIMULATION (Fallback / Default) ---
+    // Runs if isIoMode is false OR if IoT data came back empty
+    if (!isIoMode || vibration === undefined) {
+        const isChaosMode = timeStep > 60; 
+        
+        vibration = 50 + Math.sin(timeStep * 0.1) * 2 + (Math.random() - 0.5);
+        temp = 85 + (timeStep * 0.01) + (Math.random() * 0.2);
+        load = 1500 + Math.sin(timeStep * 0.05) * 10;
+
+        if (isChaosMode) {
+            vibration += (timeStep - 60) * 0.8 + (Math.random() * 5); 
+        }
+    }
+
+    // 2. Preprocessing (StandardScaler)
     const vib_scaled = (vibration - 50.0) / 1.5;
     const temp_scaled = (temp - 82.5) / 1.5;
     const load_scaled = (load - 1500.0) / 7.0;
@@ -158,20 +186,32 @@ async function simulateTelemetryLoop() {
     updateChartData(telemetryChart, vibration);
     updateChartData(anomalyChart, anomalyScore);
 
-    // 5. Trigger Logic
+    // 5. Trigger Logic (Save crash value for Impact Chart)
     if (anomalyScore > ANOMALY_THRESHOLD && !isFailureReported) {
+        if (typeof lastCrashVibration !== 'undefined') {
+             lastCrashVibration = vibration; // Save for Impact Chart
+             if (typeof updateSimulation === 'function') updateSimulation();
+        }
         triggerFailureProtocol(anomalyScore, vibration, temp);
     }
 
     // 6. Loop Control
     timeStep++;
-    if (timeStep < 150) {
-        requestAnimationFrame(simulateTelemetryLoop);
+    
+    // IF IOT MODE: Loop slower (500ms) to match Python script speed & save API calls
+    // IF MATH MODE: Loop fast (50ms) for smooth animation
+    const delay = isIoMode ? 500 : 50;
+    
+    // Stop condition (e.g., run for 200 steps)
+    if (timeStep < 200) {
+        setTimeout(simulateTelemetryLoop, delay);
     } else {
         isSimulationRunning = false;
         const btn = document.getElementById('btnTest');
-        btn.innerText = "Test Complete";
-        btn.disabled = false;
+        if(btn) {
+            btn.innerText = "Test Complete";
+            btn.disabled = false;
+        }
     }
 }
 
@@ -179,7 +219,8 @@ async function simulateTelemetryLoop() {
 async function triggerFailureProtocol(score, vib, temp) {
     if (isFailureReported) return; // Prevent double firing
     isFailureReported = true;
-    
+    lastCrashVibration = vib;
+    updateSimulation();
     // 1. Show the Red Alert Box
     const alertBox = document.getElementById('anomalyAlert');
     if (alertBox) {
@@ -214,39 +255,42 @@ async function updateSimulation() {
 
     const inputThickness = document.getElementById('inputThickness');
     const inputLoad = document.getElementById('inputLoad');
-    
     if(!inputThickness || !inputLoad) return;
 
-    // 1. Get Input Values
+    // 1. Get Inputs & Predict
     const thickness = parseFloat(inputThickness.value);
     const load = parseFloat(inputLoad.value);
-
-    // Update UI Labels
+    
     document.getElementById('valThickness').innerText = thickness.toFixed(1) + " mm";
     document.getElementById('valLoad').innerText = load.toFixed(0) + " N";
 
-    // 2. Preprocessing (Standard Scaler using Global Stats)
     const thk_scaled = (thickness - SIM_STATS.mean[0]) / SIM_STATS.std[0];
     const load_scaled = (load - SIM_STATS.mean[1]) / SIM_STATS.std[1];
 
-    // 3. AI Inference
     const inputTensor = tf.tensor2d([[thk_scaled, load_scaled]]);
     const prediction = modelSimulator.predict(inputTensor);
-    const result = prediction.dataSync()[0]; // Get single value
+    const predictedVib = prediction.dataSync()[0];
 
-    // 4. Update Result UI
+    // 2. Update Text UI
     const outputEl = document.getElementById('predVibration');
-    outputEl.innerText = result.toFixed(2) + " Hz";
+    outputEl.innerText = predictedVib.toFixed(2) + " Hz";
     
-    // Color Coding
-    if (result > 45) outputEl.style.color = "#FF5630"; // Red
-    else if (result > 30) outputEl.style.color = "#FFAB00"; // Orange
-    else outputEl.style.color = "#36B37E"; // Green
+    if (predictedVib > 45) outputEl.style.color = "#FF5630"; 
+    else outputEl.style.color = "#36B37E";
+
+    // 3. UPDATE THE CHART (Before vs After) 📊
+    if (impactChart) {
+        // Bar 1: The Crash (Red)
+        impactChart.data.datasets[0].data[0] = lastCrashVibration;
+        // Bar 2: The Fix (Green)
+        impactChart.data.datasets[0].data[1] = predictedVib;
+        
+        impactChart.update();
+    }
 
     inputTensor.dispose();
     prediction.dispose();
 }
-
 // --- CHART UTILS ---
 function initCharts() {
     const commonOptions = {
@@ -271,6 +315,33 @@ function initCharts() {
         options: {
             ...commonOptions,
             scales: { ...commonOptions.scales, y: { min: 0, max: 1.0, grid: { color: '#2C3E50' } } }
+        }
+    });
+    const ctx3 = document.getElementById('impactChart').getContext('2d');
+    impactChart = new Chart(ctx3, {
+        type: 'bar',
+        data: {
+            labels: ['Failure State', 'AI Prediction'],
+            datasets: [{
+                label: 'Vibration (Hz)',
+                data: [0, 0], // Will fill dynamically
+                backgroundColor: ['#FF5630', '#36B37E'], // Red vs Green
+                borderWidth: 0,
+                borderRadius: 4,
+                barPercentage: 0.6
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                title: { display: true, text: 'Impact Analysis', color: '#8993A4' }
+            },
+            scales: {
+                y: { beginAtZero: true, grid: { color: '#2C3E50' }, title: { display: true, text: 'Hz' } },
+                x: { grid: { display: false } }
+            }
         }
     });
 }
