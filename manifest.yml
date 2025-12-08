@@ -118,12 +118,21 @@ modules:
           - bitbucket-oauth-v2
     - key: ith
       handler: index.ingestTelemetry
+    - key: learning-fn
+      handler: index.modelRetrainingHandler
+      providers:
+        auth:
+          - bitbucket-oauth-v2
 
   trigger:
     - key: issue-created-trigger
       function: trigger-fn
       events:
         - avi:jira:created:issue
+    - key: issue-updated-trigger
+      function: learning-fn
+      events:
+        - avi:jira:updated:issue
   
 
   # ✅ Global Page (The "Emergency Entrance" for Login)

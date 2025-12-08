@@ -10,7 +10,7 @@ let isFailureReported = false;
 let timeStep = 0;
 let impactChart; // New Chart instance
 let lastCrashVibration = 55.0; // Default placeholder until real crash
-let isIoMode = true;
+let isIoMode = false;
 // Rolling buffer for LSTM
 const SEQUENCE_LENGTH = 10;
 let dataBuffer = []; 
