@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>F1 Strategy Command</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* F1 DARK THEME */
+        body { 
+            font-family: 'Segoe UI', Roboto, Helvetica, sans-serif; 
+            padding: 0; margin: 0; 
+            background-color: #091E42; /* Atlassian Dark Blue */
+            color: white; 
+            overflow: hidden;
+        }
+
+        .dashboard-container {
+            display: grid;
+            grid-template-columns: 1fr 1.5fr; /* 2 Columns */
+            grid-template-rows: 1fr 1fr;
+            gap: 12px;
+            padding: 15px;
+            height: 95vh;
+        }
+
+        .card {
+            background: #172B4D; /* Lighter Dark Blue */
+            border-radius: 8px;
+            padding: 15px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+            border: 1px solid #2C3E50;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+        }
+
+        .card-header {
+            position: absolute;
+            top: 10px;
+            left: 15px;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #8993A4;
+            font-weight: bold;
+        }
+
+        /* METRIC STYLES */
+        .big-number { font-size: 42px; font-weight: 800; color: #579DFF; }
+        .label { font-size: 12px; color: #8993A4; margin-top: -5px; }
+
+        /* FEED STYLES */
+        .feed-container {
+            width: 100%;
+            height: 100%;
+            overflow-y: hidden;
+            text-align: left;
+            margin-top: 20px;
+        }
+        .feed-item {
+            font-size: 11px;
+            padding: 6px 0;
+            border-bottom: 1px solid #2C3E50;
+            display: flex;
+            justify-content: space-between;
+        }
+        .feed-time { color: #579DFF; font-weight: bold; min-width: 50px; }
+        .feed-msg { color: #B3BAC5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+        /* STATUS BADGE */
+        .badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: bold;
+            margin-top: 5px;
+        }
+        .bg-green { background: rgba(54, 179, 126, 0.2); color: #36B37E; }
+        .bg-red { background: rgba(255, 86, 48, 0.2); color: #FF5630; }
+
+    </style>
+</head>
+<body>
+
+    <div class="dashboard-container">
+        
+        <div class="card" style="grid-row: span 2;">
+            <div class="card-header">Fleet Reliability</div>
+            <div style="height: 120px; width: 120px; position: relative;">
+                <canvas id="healthChart"></canvas>
+                <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center;">
+                    <div id="healthScore" style="font-size: 24px; font-weight: bold;">--%</div>
+                </div>
+            </div>
+            <div id="healthStatus" class="badge bg-green" style="margin-top: 15px;">ANALYZING</div>
+            <div style="margin-top: 15px; font-size: 10px; color: #8993A4; text-align: center;">
+                Real-time anomaly detection active across all systems.
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">AI Neural Link</div>
+            <div style="display: flex; gap: 30px; align-items: center;">
+                <div style="text-align: center;">
+                    <div class="big-number" id="knowledgeCount">0</div>
+                    <div class="label">Scenarios Learned</div>
+                </div>
+                <div style="height: 40px; width: 1px; background: #2C3E50;"></div>
+                <div style="text-align: center;">
+                    <div class="big-number" id="optRate" style="color: #36B37E;">0%</div>
+                    <div class="label">Optimization Rate</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">Strategy Live Feed</div>
+            <div class="feed-container" id="feedList">
+                <div class="feed-item"><span class="feed-time">--</span><span class="feed-msg">Connecting to Pit Wall...</span></div>
+            </div>
+        </div>
+
+    </div>
+
+    <script src="https://forge.cdn.prod.atlassian-dev.net/global-bridge.js"></script>
+    <script>
+        let healthChartInstance = null;
+
+        // Initialize Chart
+        function initChart() {
+            const ctx = document.getElementById('healthChart').getContext('2d');
+            healthChartInstance = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Health', 'Risk'],
+                    datasets: [{
+                        data: [100, 0],
+                        backgroundColor: ['#579DFF', '#091E42'], // Blue & Dark
+                        borderWidth: 0,
+                        cutout: '85%'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false }, tooltip: { enabled: false } },
+                    animation: { duration: 800 }
+                }
+            });
+        }
+
+        // Poll for Data (Every 2 seconds)
+        async function updateDashboard() {
+            try {
+                const data = await window.ForgeBridge.invoke('fetchDashboardData');
+                
+                // 1. Update Health Chart
+                const score = parseFloat(data.health.score);
+                document.getElementById('healthScore').innerText = score.toFixed(0) + "%";
+                document.getElementById('healthStatus').innerText = data.health.status;
+                
+                // Color Logic
+                const isCritical = score < 80;
+                document.getElementById('healthStatus').className = isCritical ? "badge bg-red" : "badge bg-green";
+                healthChartInstance.data.datasets[0].backgroundColor = isCritical ? ['#FF5630', '#091E42'] : ['#36B37E', '#091E42'];
+                healthChartInstance.data.datasets[0].data = [score, 100 - score];
+                healthChartInstance.update();
+
+                // 2. Update AI Stats
+                document.getElementById('knowledgeCount').innerText = data.ai.knowledge_size;
+                document.getElementById('optRate').innerText = data.ai.optimization_rate;
+
+                // 3. Update Feed
+                const feedContainer = document.getElementById('feedList');
+                feedContainer.innerHTML = ""; // Clear old
+                data.feed.slice(0, 3).forEach(log => {
+                    const row = document.createElement('div');
+                    row.className = 'feed-item';
+                    row.innerHTML = `<span class="feed-time">${log.time}</span><span class="feed-msg">${log.msg}</span>`;
+                    feedContainer.appendChild(row);
+                });
+
+            } catch (e) {
+                console.error("Dashboard Sync Error:", e);
+            }
+        }
+
+        // Start
+        initChart();
+        setInterval(updateDashboard, 2000); // Live poll
+        updateDashboard(); // Initial fetch
+    </script>
+</body>
+</html>

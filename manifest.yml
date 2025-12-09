@@ -21,7 +21,6 @@ permissions:
     scripts:
       - 'unsafe-inline'
       - 'unsafe-eval'
-      
   external:
     fetch:
       backend:
@@ -29,6 +28,7 @@ permissions:
       client:
         - 'https://esm.sh'
         - 'https://api.openai.com'
+        - 'https://storage.googleapis.com'
         
     images:
       - https://cdn-icons-png.flaticon.com
@@ -152,6 +152,14 @@ modules:
         function: main-resolver
       title: 🏁 Pit Wall
       icon: https://cdn-icons-png.flaticon.com/512/555/555646.png
+  jira:dashboardGadget:
+    - key: strategy-dashboard
+      title: "🏎️ F1 Strategy Command"
+      description: "Executive view of Fleet Health and AI Learning Status."
+      thumbnail: https://cdn-icons-png.flaticon.com/512/555/555646.png
+      resource: dashboard-resource
+      resolver:
+        function: main-resolver
 
 extensions:
   rovo:action:
@@ -179,3 +187,5 @@ extensions:
 resources:
   - key: pit-wall-resource
     path: static/pit-wall
+  - key: dashboard-resource
+    path: static/dashboard

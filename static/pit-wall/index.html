@@ -1,152 +1,156 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Pit Wall</title>
-  <script src="./chart.js"></script>
-  <script src="./tf.js"></script>
-  
-  <style>
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      padding: 20px;
-      background-color: #091E42; /* F1 Dark Blue */
-      color: white;
-      text-align: left;
-    }
-
-    h2 { color: #579DFF; margin-bottom: 5px; border-bottom: 1px solid #579DFF; padding-bottom: 10px; }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>F1 Pit Wall - Unified Command</title>
+    <script src="./chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
     
-    .card {
-      background: #1C2B41;
-      border-radius: 8px;
-      padding: 15px;
-      margin-bottom: 20px;
-      box-shadow: 0 4px 8px rgba(0,0,0,0.3);
-      border: 1px solid #2C3E50;
-    }
-
-    .status-row { display: flex; justify-content: space-between; align-items: center; }
-    #connectionStatus { font-size: 12px; font-weight: bold; }
-
-    /* Spec Box */
-    #specContainer { 
-        font-family: monospace; 
-        color: #579DFF; 
-        white-space: pre-wrap; 
-        font-size: 12px;
-        max-height: 150px;
-        overflow-y: auto;
-    }
-
-    button {
-      background-color: #0052CC;
-      color: white;
-      padding: 8px 16px;
-      border: none;
-      border-radius: 3px;
-      cursor: pointer;
-      font-weight: bold;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-    }
-    button:hover { background-color: #0065FF; }
-
-    /* Chart Containers */
-    .chart-wrapper { position: relative; height: 200px; width: 100%; margin-top: 10px; }
-    
-    /* NEW: Alert Box Styles */
-    #anomalyAlert {
-        display: none; /* Hidden by default */
-        background-color: #FF5630; /* Jira Red */
-        color: white;
-        padding: 10px;
-        margin-bottom: 10px;
-        border-radius: 4px;
-        font-weight: bold;
-        text-align: center;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-        animation: pulse 1s infinite;
-    }
-
-    @keyframes pulse {
-        0% { opacity: 1; }
-        50% { opacity: 0.8; }
-        100% { opacity: 1; }
-    }
-  </style>
+    <style>
+        /* F1 DARK THEME - GRAND EDITION */
+        body { background-color: #091E42; color: #B3BAC5; font-family: 'Segoe UI', Roboto, sans-serif; padding: 0; margin: 0; overflow-x: hidden; }
+        .nav-tabs { display: flex; background: #172B4D; border-bottom: 2px solid #2C3E50; padding: 0 20px; }
+        .tab-btn { background: transparent; border: none; color: #8993A4; padding: 15px 25px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; cursor: pointer; border-bottom: 3px solid transparent; transition: all 0.3s ease; }
+        .tab-btn:hover { color: white; }
+        .tab-btn.active { color: #579DFF; border-bottom: 3px solid #579DFF; }
+        .view-section { display: none; padding: 20px; animation: fadeIn 0.4s; }
+        .view-section.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+        .card { background: #172B4D; border: 1px solid #2C3E50; border-radius: 6px; padding: 15px; margin-bottom: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); position: relative; }
+        .card h3 { color: #8993A4; font-size: 10px; text-transform: uppercase; font-weight: 800; margin-bottom: 15px; letter-spacing: 0.5px; }
+        .mission-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; }
+        .big-metric { font-size: 36px; font-weight: 800; color: white; }
+        .sub-metric { font-size: 11px; color: #36B37E; font-weight: bold; }
+        .sub-metric.warn { color: #FF5630; }
+        .feed-item { font-size: 11px; padding: 8px 0; border-bottom: 1px solid #2C3E50; display: flex; justify-content: space-between; }
+        .feed-time { color: #579DFF; font-weight: bold; }
+        .status-badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; background: #2C3E50; color: white; }
+        .status-badge.critical { background: rgba(255, 86, 48, 0.2); color: #FF5630; border: 1px solid #FF5630; }
+        .status-badge.nominal { background: rgba(54, 179, 126, 0.2); color: #36B37E; border: 1px solid #36B37E; }
+        canvas { max-height: 200px; width: 100%; }
+        input[type=range] { width: 100%; accent-color: #579DFF; background: transparent; }
+        button.btn-primary { background: #0052CC; color: white; border: none; padding: 10px 20px; border-radius: 4px; font-weight: bold; cursor: pointer; width: 100%; }
+        button.btn-primary:hover { background: #0065FF; }
+        button:disabled { background: #2C3E50; cursor: not-allowed; color: #8993A4; }
+        
+        /* Result Box Style */
+        .result-box {
+            background: #2C3E50; padding: 10px; border-radius: 4px; text-align: center;
+            border: 1px solid #579DFF; margin-left: 10px; min-width: 100px;
+        }
+    </style>
 </head>
 <body>
 
-  <div class="status-row">
-    <h2>🏁 PIT WALL</h2>
-    <span id="connectionStatus">🔴 Offline</span>
-  </div>
-
-  <div class="card">
-    <h3>📐 Engineering Specs (AI)</h3>
-    <div id="specContainer">Waiting for data...</div>
-  </div>
-
-  <div class="card">
-    <div class="status-row">
-      <h3>📈 Live Telemetry</h3>
-      <button id="btnTest">▶ Start Test</button>
+    <div class="nav-tabs">
+        <button class="tab-btn active" onclick="switchTab('mission')">Strategy Command</button>
+        <button class="tab-btn" onclick="switchTab('telemetry')">Sim & Telemetry</button>
     </div>
-    <div class="chart-wrapper">
-      <canvas id="telemetryChart"></canvas>
-    </div>
-  </div>
 
-  <div class="card">
-    <h3>⚠️ Anomaly Detection (LSTM)</h3>
-    
-    <div id="anomalyAlert">🚨 FAILURE DETECTED</div>
-    
-    <div class="chart-wrapper">
-      <canvas id="anomalyChart"></canvas>
-    </div>
-  </div>
-  
-
-  <div class="card">
-    <h3>🛠️ Solution Simulator (What-If)</h3>
-    
-    <div style="display: flex; gap: 20px;">
-        
-        <div style="flex: 1;">
-            <div style="margin-bottom: 15px;">
-                <label>Material Thickness (mm)</label>
-                <input type="range" id="inputThickness" min="3.0" max="10.0" step="0.1" value="5.0" style="width: 100%;">
-                <div style="display: flex; justify-content: space-between;">
-                    <span style="font-size: 10px; color: #8993A4;">3.0mm</span>
-                    <span id="valThickness" style="color: #579DFF; font-weight: bold;">5.0 mm</span>
-                    <span style="font-size: 10px; color: #8993A4;">10.0mm</span>
+    <div id="mission" class="view-section active">
+        <div class="mission-grid">
+            <div class="card" style="text-align: center;">
+                <h3>Fleet Reliability</h3>
+                <div style="height: 100px; position: relative;">
+                    <canvas id="healthDonut"></canvas>
+                    <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 20px; font-weight: 800; color: white;">
+                        <span id="healthScore">--</span>%
+                    </div>
+                </div>
+                <div id="healthStatus" class="status-badge nominal" style="margin-top: 10px;">ANALYZING</div>
+            </div>
+            <div class="card">
+                <h3>Neural Knowledge Base</h3>
+                <div style="margin-top: 10px;">
+                    <div class="big-metric" id="knowledgeCount">0</div>
+                    <div class="sub-metric">Verified Scenarios Learned</div>
+                </div>
+                <div style="margin-top: 15px; border-top: 1px solid #2C3E50; padding-top: 10px;">
+                    <span style="font-size: 24px; font-weight: bold; color: #36B37E;" id="optRate">0%</span>
+                    <span style="font-size: 10px; color: #8993A4;">Optimization Confidence</span>
                 </div>
             </div>
-
-            <div>
-                <label>Aero Load (N)</label>
-                <input type="range" id="inputLoad" min="1000" max="2000" step="10" value="1500" style="width: 100%;">
-                <div style="display: flex; justify-content: space-between;">
-                    <span style="font-size: 10px; color: #8993A4;">1000N</span>
-                    <span id="valLoad" style="color: #579DFF; font-weight: bold;">1500 N</span>
-                    <span style="font-size: 10px; color: #8993A4;">2000N</span>
+            <div class="card">
+                <h3>Autonomous Actions</h3>
+                <div style="margin-top: 10px;">
+                    <div class="big-metric" style="color: #FF5630;" id="prCount">0</div>
+                    <div class="sub-metric warn">Active Auto-Fix PRs</div>
+                </div>
+                <div style="margin-top: 15px; font-size: 11px; color: #8993A4;">
+                    AI Agent is actively monitoring code repositories.
                 </div>
             </div>
+        </div>
+        <div class="card" style="margin-top: 5px;">
+            <h3>Strategy Live Feed</h3>
+            <div id="feedContainer">
+                <div class="feed-item"><span class="feed-time">System</span> <span>Connecting to Pit Wall Network...</span></div>
+            </div>
+        </div>
+    </div>
 
-            <div style="margin-top: 20px; background: #091E42; padding: 10px; border-radius: 5px; text-align: center; border: 1px solid #579DFF;">
-                <span style="color: #8993A4; font-size: 10px; text-transform: uppercase;">Projected Vibration</span>
-                <div id="predVibration" style="font-size: 20px; font-weight: bold; color: white;">-- Hz</div>
+    <div id="telemetry" class="view-section">
+        <div class="card">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h3>Real-Time Telemetry</h3>
+                <span id="connectionStatus" class="status-badge nominal">Connected</span>
+            </div>
+            <canvas id="telemetryChart"></canvas>
+        </div>
+
+        <div class="mission-grid">
+            <div class="card">
+                <h3>Anomaly Score</h3>
+                <canvas id="anomalyChart"></canvas>
+                <div style="text-align: center; margin-top: 5px; color: #FF5630; font-weight: bold; font-size: 18px;" id="anomalyText">0.00</div>
+            </div>
+            <div class="card" style="grid-column: span 2;">
+                <h3>Impact Analysis (Crash vs Fix)</h3>
+                <canvas id="impactChart"></canvas>
             </div>
         </div>
 
-        <div style="flex: 1; height: 180px;">
-            <canvas id="impactChart"></canvas>
+        <div class="card">
+            <h3>Manual Override & Simulation</h3>
+            <div style="display: flex; gap: 20px; align-items: center;">
+                
+                <div style="flex: 1;">
+                    <label style="font-size: 11px; color: #8993A4;">Thickness (mm)</label>
+                    <input type="range" id="inputThickness" min="3.0" max="10.0" step="0.1" value="5.0">
+                    <div style="display: flex; justify-content: space-between; font-size: 10px; color: #579DFF;">
+                        <span>3.0</span> <span id="valThickness">5.0</span> <span>10.0</span>
+                    </div>
+                </div>
+
+                <div style="flex: 1;">
+                    <label style="font-size: 11px; color: #8993A4;">Aero Load (N)</label>
+                    <input type="range" id="inputLoad" min="1000" max="2500" step="10" value="1500">
+                    <div style="display: flex; justify-content: space-between; font-size: 10px; color: #579DFF;">
+                        <span>1000</span> <span id="valLoad">1500</span> <span>2500</span>
+                    </div>
+                </div>
+
+                <div class="result-box">
+                    <div style="font-size: 10px; color: #8993A4;">PREDICTED</div>
+                    <div id="resultText" style="font-weight: bold; font-size: 18px; color: white;">-- Hz</div>
+                </div>
+
+                <div style="flex: 1;">
+                    <button id="btnTest" class="btn-primary" style="height: 40px;">START CRASH TEST</button>
+                </div>
+            </div>
         </div>
     </div>
-  </div>
 
-  <script type="module" src="./script.js"></script>
+    <script src="script.js" type="module"></script>
+    <script>
+        function switchTab(tabName) {
+            document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+            document.getElementById(tabName).classList.add('active');
+            event.target.classList.add('active');
+        }
+    </script>
 </body>
 </html>
