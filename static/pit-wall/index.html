@@ -34,11 +34,23 @@
         button.btn-primary:hover { background: #0065FF; }
         button:disabled { background: #2C3E50; cursor: not-allowed; color: #8993A4; }
         
-        /* Result Box Style */
         .result-box {
             background: #2C3E50; padding: 10px; border-radius: 4px; text-align: center;
             border: 1px solid #579DFF; margin-left: 10px; min-width: 100px;
         }
+
+        /* 🎙️ PIT RADIO BUTTON */
+        .radio-btn {
+            background: #FF5630; color: white; border: none; padding: 8px 16px;
+            border-radius: 20px; font-weight: bold; font-size: 12px; cursor: pointer;
+            display: flex; align-items: center; gap: 8px;
+            box-shadow: 0 0 10px rgba(255, 86, 48, 0.4);
+            animation: pulse-red 2s infinite;
+        }
+        .radio-btn.listening { background: #36B37E; animation: pulse-green 1s infinite; }
+        @keyframes pulse-red { 0% { box-shadow: 0 0 0 0 rgba(255, 86, 48, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(255, 86, 48, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 86, 48, 0); } }
+        @keyframes pulse-green { 0% { box-shadow: 0 0 0 0 rgba(54, 179, 126, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(54, 179, 126, 0); } 100% { box-shadow: 0 0 0 0 rgba(54, 179, 126, 0); } }
+
     </style>
 </head>
 <body>
@@ -94,7 +106,12 @@
         <div class="card">
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <h3>Real-Time Telemetry</h3>
-                <span id="connectionStatus" class="status-badge nominal">Connected</span>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <button id="btnRadio" class="radio-btn">
+                        <span>🎙️ PIT RADIO</span>
+                    </button>
+                    <span id="connectionStatus" class="status-badge nominal">Connected</span>
+                </div>
             </div>
             <canvas id="telemetryChart"></canvas>
         </div>

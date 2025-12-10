@@ -117,17 +117,6 @@ resolver.define("triggerSolutionAnalysis", async (req) => {
 });
 
 // =====================================================
-// 3. DAY 16 & 17: DATA GATHERING + AI PRESCRIPTION
-// =====================================================
-
-// =====================================================
-// 3. DAY 16 & 17: DATA GATHERING + AI MEMORY (RAG)
-// =====================================================
-
-// =====================================================
-// 3. OPENAI HELPER (PHYSICS + WEIGHT CALCULATION)
-// =====================================================
-// =====================================================
 // 2. MAIN LOGIC: PRESCRIBE SOLUTION (With 2-Stage Check)
 // =====================================================
 export async function prescribeSolutionHandler(payload) {
@@ -136,17 +125,18 @@ export async function prescribeSolutionHandler(payload) {
     
     console.log(`🕵️ AGENT: Starting Root Cause Analysis for ${jiraKey}...`);
 
-    // --- STEP A: PHYSICS CALCULATION (The AI Proposal) ---
+    // --- STEP A: PHYSICS CALCULATION ---
     const vibValue = parseFloat(failureData.max_vibration) || 80.0;
     
-    // Physics: Target 45Hz. Base 5mm. +1mm = -10Hz.
-    // Need (80 - 45) / 10 = 3.5mm increase. Total = 8.5mm.
     let rawThickness = 5.0 + ((vibValue - 45.0) / 10);
     rawThickness = parseFloat(rawThickness.toFixed(1)); 
 
-    const ragMessage = `Detected resonance pattern similar to **KAN-42**, but with higher amplitude (${vibValue}Hz).`;
+    const trainingSet = await storage.get('master_training_set') || [];
+    const ragMessage = trainingSet.length > 0 
+        ? `Detected pattern similar to verified fix on **${trainingSet[trainingSet.length-1].ticket}**.` 
+        : `Detected resonance pattern similar to **KAN-42**, but with higher amplitude (${vibValue}Hz).`;
     
-    // 2. COMMENT 2: AI PRESCRIPTION (The Proposal)
+    // COMMENT 1: AI PROPOSAL
     const aiProposal = {
         material_thickness: `${rawThickness}mm`,
         dampening_coefficient: "+15%",
@@ -155,24 +145,23 @@ export async function prescribeSolutionHandler(payload) {
 
     await postJiraCommentFormatted(jiraKey, "✅ AI PRESCRIPTION (Powered by RAG)", 
         `**Root Cause:** ${ragMessage}\n\n` + 
-        `👉 **Recommendation:** Based on the verified solution for **KAN-42** (and adjusted for load), I recommend a precision increase to **${rawThickness}mm**.\n\n` +
+        `👉 **Recommendation:** Based on verified history and load adjustment, I recommend a precision increase to **${rawThickness}mm**.\n\n` +
         `*(Pending Compliance Check...)*`,
         aiProposal, 
-        "#36B37E" // Green
+        "#36B37E"
     );
 
-    // --- STEP B: THE FIA ENFORCER (Compliance Check) ---
-    // Simulate Fetching Rules
+    // --- STEP B: COMPLIANCE CHECK ---
     const MAX_LEGAL_LIMIT = 8.0; 
     let finalThickness = rawThickness;
     let isIllegal = false;
 
     if (rawThickness > MAX_LEGAL_LIMIT) {
         isIllegal = true;
-        finalThickness = MAX_LEGAL_LIMIT; // Cap at 8.0mm
+        finalThickness = MAX_LEGAL_LIMIT;
     }
 
-    // 3. COMMENT 3: FIA COMPLIANCE ENFORCER
+    // COMMENT 2: COMPLIANCE ENFORCER
     const complianceStatus = isIllegal 
         ? `⚠️ **VIOLATION DETECTED:** ${rawThickness}mm exceeds FIA Article 3.4 limit (${MAX_LEGAL_LIMIT}mm).` 
         : `✅ **COMPLIANT:** Design is within FIA Article 3.4 limits.`;
@@ -189,18 +178,26 @@ export async function prescribeSolutionHandler(payload) {
             "final_approved": `${finalThickness}mm`, 
             "status": isIllegal ? "RESTRICTED" : "APPROVED"
         }, 
-        isIllegal ? "#FFAB00" : "#0052CC" // Orange if Violation
+        isIllegal ? "#FFAB00" : "#0052CC"
     );
 
-    // --- STEP C: EXECUTE AUTO-FIX (With FINAL value) ---
+    // --- STEP C: EXECUTE AUTO-FIX & SAVE DATA ---
     const finalSpec = { ...aiProposal, material_thickness: `${finalThickness}mm` };
-    await storage.set(`fix_${jiraKey}`, { recommendation: `${finalThickness}mm Titanium`, ...finalSpec });
+    
+    // ✅ CRITICAL UPDATE: Save the FULL STORY so Confluence can read it later!
+    await storage.set(`specs_${jiraKey}`, { max_vibration: `${vibValue} Hz` });
+    
+    await storage.set(`fix_${jiraKey}`, { 
+        recommendation: `Increase precision thickness to ${finalThickness}mm (Titanium Alloy).`,
+        root_cause: ragMessage,
+        compliance_note: `${complianceStatus} ${complianceAction}`,
+        specs: finalSpec
+    });
 
     let prLink = "N/A";
     try {
         prLink = await implementAutonomousFix(jiraKey, finalSpec);
-        
-        // 4. COMMENT 4: AUTO-FIX DEPLOYED
+        // COMMENT 3: AUTO-FIX DEPLOYED
         await postJiraCommentFormatted(jiraKey, "🛠️ AUTO-FIX DEPLOYED", 
             `Pull Request created with **approved** specs.\n\n👉 **Auto-Fix PR:** [Review Changes](${prLink})`, 
             null, "#6554C0");
@@ -454,20 +451,78 @@ export async function ingestTelemetry(request) {
     }
 }
 // =====================================================
-// 8. ENHANCEMENT 3: CLOSED-LOOP RETRAINING (The "Smarter AI")
+// 8. ENHANCEMENT: AUTOMATIC DEBRIEF (Confluence Integration)
 // =====================================================
 
+// Helper Function: Creates the Confluence Page
 // =====================================================
-// 5. LEARNING TRIGGER (Closed-Loop Retraining)
+// 8. ENHANCEMENT: AUTOMATIC DEBRIEF (Returns URL now!)
+// =====================================================
+async function createConfluencePostMortem(ticketKey, specs, fix) {
+    const spaceKey = "SAI"; // ⚠️ Verify your Space Key!
+    const title = `Post-Mortem: ${ticketKey} - Failure Analysis ${Date.now().toString().slice(-4)}`;
+    const date = new Date().toISOString().split('T')[0];
+
+    // Use the saved data or fallback to "N/A"
+    const rootCause = fix.root_cause || "Resonance mismatch detected via IoT telemetry.";
+    const recommendation = fix.recommendation || "Optimization of material thickness required.";
+    const compliance = fix.compliance_note || "Checked against FIA 2025 Regulations.";
+
+    const pageBody = `
+        <h2>🚨 Incident Summary</h2>
+        <p><strong>Date:</strong> ${date}</p>
+        <p><strong>Ticket:</strong> <ac:link><ri:issue ri:key="${ticketKey}"/></ac:link></p>
+        
+        <h3>1. Failure Telemetry</h3>
+        <ul>
+            <li><strong>Max Vibration:</strong> ${specs.max_vibration || "Unknown"}</li>
+            <li><strong>Anomaly Score:</strong> Critical (1.0)</li>
+        </ul>
+
+        <h3>2. Root Cause Analysis</h3>
+        <p>${rootCause}</p>
+
+        <h3>3. AI Prescription</h3>
+        <blockquote>${recommendation}</blockquote>
+        
+        <ac:structured-macro ac:name="info" ac:schema-version="1">
+            <ac:rich-text-body>
+                <p><strong>Compliance Audit:</strong> ${compliance}</p>
+            </ac:rich-text-body>
+        </ac:structured-macro>
+
+        <h3>4. Resolution</h3>
+        <p>A new design spec was generated and pushed to Bitbucket automatically.</p>
+        <p><em>Page auto-generated by AI Race Strategist.</em></p>
+    `;
+
+    try {
+        const res = await api.asUser().requestConfluence(route`/wiki/rest/api/content`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                title: title, type: "page", space: { key: spaceKey },
+                body: { storage: { value: pageBody, representation: "storage" } }
+            })
+        });
+        
+        const data = await res.json();
+        
+        if (data._links && data._links.base && data._links.webui) {
+            return data._links.base + data._links.webui;
+        } 
+        return null;
+    } catch (e) { console.error("Confluence Error:", e); return null; }
+}
+// =====================================================
+// 5. LEARNING TRIGGER (Updated to Post Link)
 // =====================================================
 export async function modelRetrainingHandler(event) { 
     const { key, id } = event.issue;
     console.log(`🎓 TRIGGER: Checking ${key} for retraining...`);
 
     // 1. Check Status
-    const res = await api.asApp().requestJira(route`/rest/api/3/issue/${id}?fields=status`);
+    const res = await api.asUser().requestJira(route`/rest/api/3/issue/${id}?fields=status`);
     const status = (await res.json()).fields.status.name;
-    console.log(`   ↳ Status: ${status}`);
     
     if (status !== "Done") return; 
 
@@ -491,17 +546,25 @@ export async function modelRetrainingHandler(event) {
     await storage.set('master_training_set', set);
     console.log(`   ✅ Knowledge Base Updated. Count: ${set.length}`);
 
-    // 4. POST COMMENT (With Error Logging)
+    // 4. TRIGGER CONFLUENCE DEBRIEF & GET LINK
+    const reportUrl = await createConfluencePostMortem(key, storedSpecs, storedFix || {});
+    
+    let commentText = "Success verified. This failure scenario has been added to the Global Training Set.";
+    if (reportUrl) {
+        commentText += `\n\n📄 **Official Post-Mortem Report:** [View Analysis in Confluence](${reportUrl})`;
+    }
+
+    // 5. POST COMMENT
     try {
         await postJiraCommentFormatted(key, "🧠 MODEL RETRAINED", 
-            "Success verified. This failure scenario has been added to the Global Training Set.", 
+            commentText, 
             { 
                 "training_id": `batch-${Date.now()}`,
                 "data_points_total": set.length,
                 "model_version_promoted": "v2.2.0-beta",
                 "accuracy_improvement": "+0.4%" 
             }, 
-            "#6554C0" // Purple
+            "#6554C0"
         );
         console.log("   ✅ Comment posted successfully.");
     } catch (e) {

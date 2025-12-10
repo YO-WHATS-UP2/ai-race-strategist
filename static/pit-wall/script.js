@@ -16,10 +16,11 @@ const ANOMALY_THRESHOLD = 0.65;
 
 // SHARED STATE
 let sharedState = {
-    mode: "MATH", // "MATH" or "IOT"
+    mode: "MATH",
     vibration: 50,
     temperature: 85,
     aeroLoad: 1500,
+    anomaly: 0.02,
     lastUpdate: 0
 };
 
@@ -44,9 +45,7 @@ async function initPitWall() {
         modelAnomaly = await tf.loadLayersModel('./models/model_anomaly_v3/model.json');
         modelSimulator = await tf.loadLayersModel('./models/model_simulator_v2/model.json');
         console.log("✅ Local AI Models Loaded");
-    } catch (e) { 
-        console.warn("Using Math Fallback"); 
-    }
+    } catch (e) { console.warn("Using Math Fallback"); }
 
     // 4. Bind Inputs
     const btnTest = document.getElementById('btnTest');
@@ -57,108 +56,223 @@ async function initPitWall() {
     if(inputThickness) inputThickness.oninput = updateSimulation;
     if(inputLoad) inputLoad.oninput = updateSimulation;
 
-    // 5. START BACKGROUND PROCESSES
-    // Process A: Dashboard Poller (Every 2s)
+    // 5. Bind Radio
+    const btnRadio = document.getElementById('btnRadio');
+    if (btnRadio) btnRadio.onclick = toggleRadio;
+
+    // 6. Background Processes
     setInterval(updateDashboardStats, 2000);
-    
-    // Process B: Telemetry Fetcher (Every 1s)
+    updateDashboardStats();
     setInterval(backgroundTelemetryFetch, 1000);
 
-    // Initial Sim Update
     updateSimulation();
 }
 
 // ==========================================
-// 1. BACKGROUND FETCHER (Does not block UI)
+// 🎙️ PIT RADIO LOGIC (HARDENED KEEP-ALIVE)
+// ==========================================
+let recognition;
+let isRadioActive = false;
+let radioRestartTimer;
+
+function initRadioSystem() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+        console.warn("⚠️ Browser does not support Web Speech API");
+        return null;
+    }
+
+    const rec = new SpeechRecognition();
+    rec.lang = 'en-US';
+    rec.continuous = true;      // Keep listening even after speaking
+    rec.interimResults = false; // Only process final sentences
+
+    rec.onstart = () => {
+        console.log("🎙️ Microphone Active");
+        const btn = document.getElementById('btnRadio');
+        if (btn) {
+            btn.classList.add('listening');
+            btn.innerHTML = "🔴 CHANNEL OPEN";
+        }
+    };
+
+    rec.onresult = (event) => {
+        const lastIdx = event.results.length - 1;
+        const command = event.results[lastIdx][0].transcript.toLowerCase().trim();
+        console.log("base command:", command);
+        processVoiceCommand(command);
+    };
+
+    rec.onerror = (event) => {
+        // Ignore common "timeout" errors to keep the channel open
+        if (event.error === 'no-speech' || event.error === 'network') {
+            console.warn("Radio Static (Ignored):", event.error);
+            return; // Don't stop
+        }
+        console.error("Radio Error:", event.error);
+        if (event.error === 'not-allowed') {
+            stopRadioSystem(); // Force stop if permission denied
+            alert("Microphone permission denied.");
+        }
+    };
+
+    rec.onend = () => {
+        console.log("🎙️ Microphone Disconnected");
+        // CRITICAL: If the user didn't turn it off, RESTART IT IMMEDIATELY
+        if (isRadioActive) {
+            console.log("🔄 Keep-Alive: Restarting Radio...");
+            clearTimeout(radioRestartTimer);
+            radioRestartTimer = setTimeout(() => {
+                try { rec.start(); } catch(e) { console.log("Restart race condition ignored"); }
+            }, 100); 
+        } else {
+            // User turned it off manually
+            const btn = document.getElementById('btnRadio');
+            if (btn) {
+                btn.classList.remove('listening');
+                btn.innerHTML = "🎙️ PIT RADIO";
+            }
+        }
+    };
+
+    return rec;
+}
+
+function toggleRadio() {
+    // 1. Initialize if missing
+    if (!recognition) recognition = initRadioSystem();
+    if (!recognition) return;
+
+    if (isRadioActive) {
+        // TURN OFF
+        stopRadioSystem();
+    } else {
+        // TURN ON
+        isRadioActive = true;
+        try { recognition.start(); } catch(e) { console.error("Start error:", e); }
+    }
+}
+
+function stopRadioSystem() {
+    isRadioActive = false;
+    if (recognition) recognition.stop();
+}
+
+function processVoiceCommand(cmd) {
+    const synth = window.speechSynthesis;
+    // Debounce: Cancel old speech so new commands take priority
+    if (synth.speaking) synth.cancel();
+
+    let replyText = "";
+
+    // 1. STATUS REPORT
+    if (cmd.includes("status") || cmd.includes("report") || cmd.includes("damage")) {
+        const vib = sharedState.vibration.toFixed(1);
+        const anomaly = (sharedState.anomaly || 0).toFixed(2);
+        
+        if (sharedState.vibration > 60) {
+            replyText = `Critical Alert. Vibration at ${vib} Hertz. Anomaly score ${anomaly}. Check compliance immediately.`;
+        } else {
+            replyText = `Systems nominal. Vibration stable at ${vib} Hertz.`;
+        }
+    }
+    
+    // 2. TRIGGER FIX
+    else if (cmd.includes("box") || cmd.includes("fix") || cmd.includes("solution")) {
+        replyText = "Copy, box box. Analyzing solution patterns from organizational memory. Stand by.";
+    }
+
+    // 3. WEATHER
+    else if (cmd.includes("weather") || cmd.includes("track")) {
+        replyText = "Track dry. Temperature 28 degrees. Simulation running standard patterns.";
+    }
+    
+    // 4. IGNORE SHORT NOISE
+    else if (cmd.length < 3) {
+        return; 
+    }
+    
+    // 5. UNKNOWN
+    else {
+        replyText = "Command not recognized. Repeat.";
+    }
+
+    // Speak
+    if (replyText) {
+        const utterance = new SpeechSynthesisUtterance(replyText);
+        utterance.rate = 1.1; 
+        synth.speak(utterance);
+    }
+}
+
+// ==========================================
+// 1. BACKGROUND FETCHER
 // ==========================================
 async function backgroundTelemetryFetch() {
     if (!bridge) return;
-
     try {
         const now = Date.now();
         const latest = await bridge.invoke('fetchLiveTelemetry');
-
         if (latest && latest.timestamp) {
-            const dataTimeMs = latest.timestamp * 1000;
-            // FIX: Increased timeout to 60 seconds to prevent clock-drift issues
-            if ((now - dataTimeMs) < 60000) {
+            if ((now - latest.timestamp * 1000) < 60000) {
                 sharedState.mode = "IOT";
                 sharedState.vibration = latest.vibration;
                 sharedState.temperature = latest.temperature;
                 sharedState.aeroLoad = latest.aero_load;
-                sharedState.lastUpdate = now;
-                
-                // Update Badge
                 const statusEl = document.getElementById('connectionStatus');
                 if(statusEl) { statusEl.innerText = "📡 Live Data"; statusEl.style.color = "#579DFF"; }
-                
-                // Auto-start simulation if data comes in
                 if (!isSimulationRunning) startTestRun();
-                
                 return;
             }
         }
     } catch (e) { }
-
-    // Fallback if no data
     sharedState.mode = "MATH";
     const statusEl = document.getElementById('connectionStatus');
     if(statusEl) { statusEl.innerText = "⚡ Simulation"; statusEl.style.color = "#FFAB00"; }
 }
 
 // ==========================================
-// 2. ANIMATION LOOP (Runs Fast - 50ms)
+// 2. ANIMATION LOOP
 // ==========================================
 function startTestRun() {
     if (isSimulationRunning) return;
-    
-    // Auto-switch to Telemetry Tab
     const simTabBtn = document.querySelector("button[onclick=\"switchTab('telemetry')\"]");
     if(simTabBtn) simTabBtn.click();
 
     isSimulationRunning = true;
     isFailureReported = false; 
-    // timeStep = 0; // Don't reset timeStep for infinite stream
     dataBuffer = []; 
-    
     const btnTest = document.getElementById('btnTest');
     btnTest.innerText = "Running...";
-    btnTest.disabled = true; // Keep disabled while running
-    
+    btnTest.disabled = true;
     simulateTelemetryLoop();
 }
 
 function simulateTelemetryLoop() {
     if (!isSimulationRunning) return;
 
-    let vibration, temp;
-
-    // READ FROM SHARED STATE
+    let vibration;
     if (sharedState.mode === "IOT") {
         vibration = sharedState.vibration;
-        temp = sharedState.temperature;
-        console.log(`Plotting Live: ${vibration.toFixed(2)} Hz`); // Debug Log
     } else {
-        // MATH MODE
         const isChaosMode = timeStep > 60; 
         vibration = 50 + Math.sin(timeStep * 0.1) * 2 + (Math.random() - 0.5);
-        temp = 85 + (timeStep * 0.01);
-        if (isChaosMode) {
-            vibration += (timeStep - 60) * 0.8 + (Math.random() * 5); 
-        }
+        if (isChaosMode) vibration += (timeStep - 60) * 0.8 + (Math.random() * 5); 
     }
 
-    // UPDATE CHARTS
+    // Store for Voice
+    sharedState.vibration = vibration;
+
     telemetryChart.data.labels.shift(); telemetryChart.data.labels.push('');
     telemetryChart.data.datasets[0].data.shift(); telemetryChart.data.datasets[0].data.push(vibration);
     telemetryChart.update('none'); 
 
-    // ANOMALY CHECK
     let anomalyScore = 0.02;
     if (vibration > 60) {
         anomalyScore = (vibration - 60) / 30; 
         anomalyScore = Math.min(Math.max(anomalyScore, 0.1), 1.0);
     }
+    sharedState.anomaly = anomalyScore; // Store for Voice
 
     const anomalyText = document.getElementById('anomalyText');
     if(anomalyText) {
@@ -170,28 +284,21 @@ function simulateTelemetryLoop() {
     anomalyChart.data.datasets[0].data.push(anomalyScore);
     anomalyChart.update('none');
 
-    // TRIGGER FAILURE
     if (anomalyScore > ANOMALY_THRESHOLD && !isFailureReported) {
         lastCrashVibration = vibration;
         if(impactChart) {
             impactChart.data.datasets[0].data = [lastCrashVibration, 30.5]; 
             impactChart.update();
         }
-        triggerFailureProtocol(anomalyScore, vibration, temp);
+        triggerFailureProtocol(anomalyScore, vibration);
     }
 
     timeStep++;
-    
-    // FIX: Infinite Loop for IoT Mode
     if (sharedState.mode === "IOT") {
-        setTimeout(simulateTelemetryLoop, 50); // Keep running forever
+        setTimeout(simulateTelemetryLoop, 50);
     } else {
-        // Simulation Mode stops after 400 frames
-        if (timeStep < 400) {
-            setTimeout(simulateTelemetryLoop, 50);
-        } else {
-            stopSimulation();
-        }
+        if (timeStep < 400) setTimeout(simulateTelemetryLoop, 50);
+        else stopSimulation();
     }
 }
 
@@ -202,21 +309,13 @@ function stopSimulation() {
     if(btn) { btn.innerText = "START CRASH TEST"; btn.disabled = false; }
 }
 
-// ==========================================
-// 3. BACKEND TRIGGERS & DASHBOARD
-// ==========================================
-async function triggerFailureProtocol(score, vib, temp) {
+async function triggerFailureProtocol(score, vib) {
     if (isFailureReported) return;
     isFailureReported = true;
     try {
         await bridge.invoke('triggerSolutionAnalysis', { 
             jiraTicketKey: "CURRENT_ISSUE",
-            failureData: { 
-                max_vibration: vib.toFixed(2) + " Hz", 
-                temperature: (temp || 85).toFixed(1) + " C",
-                anomaly_score: score.toFixed(4),
-                timestamp: new Date().toISOString()
-            }
+            failureData: { max_vibration: vib.toFixed(2) + " Hz", anomaly_score: score.toFixed(4) }
         });
     } catch(e) { }
 }
@@ -225,8 +324,6 @@ async function updateDashboardStats() {
     try {
         const data = await bridge.invoke('fetchDashboardData');
         if (!data) return;
-
-        // Health Gauge
         const score = parseFloat(data.health.score);
         if (healthDonut) {
             const isCrit = score < 80;
@@ -234,19 +331,14 @@ async function updateDashboardStats() {
             healthDonut.data.datasets[0].data = [score, 100 - score];
             healthDonut.update();
         }
-        
-        const scoreEl = document.getElementById('healthScore');
-        if(scoreEl) scoreEl.innerText = score.toFixed(0);
-        
+        document.getElementById('healthScore').innerText = score.toFixed(0);
         const statusBadge = document.getElementById('healthStatus');
         if(statusBadge) {
             statusBadge.innerText = data.health.status;
             statusBadge.className = `status-badge ${data.health.status === 'OPTIMAL' ? 'nominal' : 'critical'}`;
         }
-
         document.getElementById('knowledgeCount').innerText = data.ai.knowledge_size;
         document.getElementById('optRate').innerText = data.ai.optimization_rate;
-
         const feedContainer = document.getElementById('feedContainer');
         if(feedContainer) {
             feedContainer.innerHTML = ""; 
@@ -260,67 +352,34 @@ async function updateDashboardStats() {
     } catch (e) { }
 }
 
-// ==========================================
-// 4. SLIDER LOGIC
-// ==========================================
 function updateSimulation() {
     const inputThickness = document.getElementById('inputThickness');
     const inputLoad = document.getElementById('inputLoad');
     if(!inputThickness || !inputLoad) return;
-
     const thickness = parseFloat(inputThickness.value);
     const load = parseFloat(inputLoad.value);
-    
     document.getElementById('valThickness').innerText = thickness.toFixed(1);
     document.getElementById('valLoad').innerText = load.toFixed(0);
-
-    // Visual Predictor
     const predictedVib = 80 - (5 * thickness) + (0.005 * load);
-    
-    // Resultant Text Display
     const resultText = document.getElementById('resultText');
     if (resultText) {
         resultText.innerText = predictedVib.toFixed(2) + " Hz";
         resultText.style.color = predictedVib < 50 ? "#36B37E" : "#FF5630";
     }
-    
     if (impactChart) {
         impactChart.data.datasets[0].data[1] = predictedVib;
         impactChart.update();
     }
 }
 
-// ==========================================
-// 5. CHART SETUP
-// ==========================================
 function initCharts() {
     const commonOptions = { responsive: true, maintainAspectRatio: false, animation: false, elements: { point: { radius: 0 } }, scales: { x: { display: false }, y: { grid: { color: '#2C3E50' } } } };
-
     const ctx1 = document.getElementById('telemetryChart').getContext('2d');
-    telemetryChart = new Chart(ctx1, {
-        type: 'line',
-        data: { labels: Array(50).fill(''), datasets: [{ label: 'Vibration', data: Array(50).fill(50), borderColor: '#579DFF', borderWidth: 2 }] },
-        options: { ...commonOptions, scales: { ...commonOptions.scales, y: { suggestedMin: 40, suggestedMax: 100 } } }
-    });
-
+    telemetryChart = new Chart(ctx1, { type: 'line', data: { labels: Array(50).fill(''), datasets: [{ label: 'Vibration', data: Array(50).fill(50), borderColor: '#579DFF', borderWidth: 2 }] }, options: { ...commonOptions, scales: { ...commonOptions.scales, y: { suggestedMin: 40, suggestedMax: 100 } } } });
     const ctx2 = document.getElementById('anomalyChart').getContext('2d');
-    anomalyChart = new Chart(ctx2, {
-        type: 'line',
-        data: { labels: Array(50).fill(''), datasets: [{ label: 'Error Score', data: Array(50).fill(0), borderColor: '#FF5630', borderWidth: 2, fill: true, backgroundColor: 'rgba(255, 86, 48, 0.2)' }] },
-        options: { ...commonOptions, scales: { ...commonOptions.scales, y: { min: 0, max: 1.0 } } }
-    });
-
+    anomalyChart = new Chart(ctx2, { type: 'line', data: { labels: Array(50).fill(''), datasets: [{ label: 'Error Score', data: Array(50).fill(0), borderColor: '#FF5630', borderWidth: 2, fill: true, backgroundColor: 'rgba(255, 86, 48, 0.2)' }] }, options: { ...commonOptions, scales: { ...commonOptions.scales, y: { min: 0, max: 1.0 } } } });
     const ctx3 = document.getElementById('impactChart').getContext('2d');
-    impactChart = new Chart(ctx3, {
-        type: 'bar',
-        data: { labels: ['Failure', 'AI Fix'], datasets: [{ data: [0, 0], backgroundColor: ['#FF5630', '#36B37E'], borderRadius: 4 }] },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: false }, scales: { y: { beginAtZero: true, suggestedMax: 100 } } }
-    });
-
+    impactChart = new Chart(ctx3, { type: 'bar', data: { labels: ['Failure', 'AI Fix'], datasets: [{ data: [0, 0], backgroundColor: ['#FF5630', '#36B37E'], borderRadius: 4 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: false }, scales: { y: { beginAtZero: true, suggestedMax: 100 } } } });
     const ctxH = document.getElementById('healthDonut').getContext('2d');
-    healthDonut = new Chart(ctxH, {
-        type: 'doughnut',
-        data: { datasets: [{ data: [100, 0], backgroundColor: ['#36B37E', '#091E42'], borderWidth: 0, cutout: '85%' }] },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: false }, animation: { duration: 800 } }
-    });
+    healthDonut = new Chart(ctxH, { type: 'doughnut', data: { datasets: [{ data: [100, 0], backgroundColor: ['#36B37E', '#091E42'], borderWidth: 0, cutout: '85%' }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: false }, animation: { duration: 800 } } });
 }
