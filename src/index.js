@@ -458,24 +458,37 @@ export async function ingestTelemetry(request) {
 // =====================================================
 // 8. ENHANCEMENT: AUTOMATIC DEBRIEF (Returns URL now!)
 // =====================================================
+// =====================================================
+// 8. ENHANCEMENT: AUTOMATIC DEBRIEF (FIXED V2 API)
+// =====================================================
 async function createConfluencePostMortem(ticketKey, specs, fix) {
-    const spaceKey = "SAI"; // ⚠️ Verify your Space Key!
+    // ✅ HARDCODED ID (Found from your JSON)
+    const spaceId = "3735556"; 
+    
     const title = `Post-Mortem: ${ticketKey} - Failure Analysis ${Date.now().toString().slice(-4)}`;
     const date = new Date().toISOString().split('T')[0];
 
-    // Use the saved data or fallback to "N/A"
-    const rootCause = fix.root_cause || "Resonance mismatch detected via IoT telemetry.";
-    const recommendation = fix.recommendation || "Optimization of material thickness required.";
-    const compliance = fix.compliance_note || "Checked against FIA 2025 Regulations.";
+    // Helper: HTML Sanitizer (Critical for Confluence V2)
+    const safe = (text) => text ? text.toString()
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;") 
+        : "N/A";
 
+    // Prepare Content
+    const rootCause = safe(fix.root_cause || "Resonance mismatch detected via IoT telemetry.");
+    const recommendation = safe(fix.recommendation || "Optimization of material thickness required.");
+    const compliance = safe(fix.compliance_note || "Checked against FIA 2025 Regulations.");
+
+    // Confluence Storage Format (XHTML)
     const pageBody = `
         <h2>🚨 Incident Summary</h2>
         <p><strong>Date:</strong> ${date}</p>
-        <p><strong>Ticket:</strong> <ac:link><ri:issue ri:key="${ticketKey}"/></ac:link></p>
+        <p><strong>Ticket:</strong> ${ticketKey}</p>
         
         <h3>1. Failure Telemetry</h3>
         <ul>
-            <li><strong>Max Vibration:</strong> ${specs.max_vibration || "Unknown"}</li>
+            <li><strong>Max Vibration:</strong> ${safe(specs.max_vibration)}</li>
             <li><strong>Anomaly Score:</strong> Critical (1.0)</li>
         </ul>
 
@@ -485,11 +498,7 @@ async function createConfluencePostMortem(ticketKey, specs, fix) {
         <h3>3. AI Prescription</h3>
         <blockquote>${recommendation}</blockquote>
         
-        <ac:structured-macro ac:name="info" ac:schema-version="1">
-            <ac:rich-text-body>
-                <p><strong>Compliance Audit:</strong> ${compliance}</p>
-            </ac:rich-text-body>
-        </ac:structured-macro>
+        <p><strong>Compliance Audit:</strong> ${compliance}</p>
 
         <h3>4. Resolution</h3>
         <p>A new design spec was generated and pushed to Bitbucket automatically.</p>
@@ -497,21 +506,38 @@ async function createConfluencePostMortem(ticketKey, specs, fix) {
     `;
 
     try {
-        const res = await api.asUser().requestConfluence(route`/wiki/rest/api/content`, {
-            method: "POST", headers: { "Content-Type": "application/json" },
+        console.log(`📝 Creating Page in Space ID: ${spaceId}...`);
+        
+        // ⚠️ USES asUser() to inherit your permission to write
+        const res = await api.asApp().requestConfluence(route`/wiki/api/v2/pages`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-                title: title, type: "page", space: { key: spaceKey },
-                body: { storage: { value: pageBody, representation: "storage" } }
+                spaceId: spaceId,
+                status: "current",
+                title: title,
+                body: {
+                    representation: "storage",
+                    value: pageBody
+                }
             })
         });
-        
+
+        if (!res.ok) {
+            const err = await res.json();
+            console.error("❌ V2 Creation Failed:", JSON.stringify(err));
+            return null;
+        }
+
         const data = await res.json();
-        
-        if (data._links && data._links.base && data._links.webui) {
-            return data._links.base + data._links.webui;
-        } 
+        const webLink = data._links.base + data._links.webui;
+        console.log("✅ Page Created:", webLink);
+        return webLink;
+
+    } catch (e) {
+        console.error("❌ Network Error:", e);
         return null;
-    } catch (e) { console.error("Confluence Error:", e); return null; }
+    }
 }
 // =====================================================
 // 5. LEARNING TRIGGER (Updated to Post Link)
@@ -521,7 +547,7 @@ export async function modelRetrainingHandler(event) {
     console.log(`🎓 TRIGGER: Checking ${key} for retraining...`);
 
     // 1. Check Status
-    const res = await api.asUser().requestJira(route`/rest/api/3/issue/${id}?fields=status`);
+    const res = await api.asApp().requestJira(route`/rest/api/3/issue/${id}?fields=status`);
     const status = (await res.json()).fields.status.name;
     
     if (status !== "Done") return; 
