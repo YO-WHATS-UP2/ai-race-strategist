@@ -10,6 +10,10 @@ let timeStep = 0;
 let dataBuffer = []; 
 let lastCrashVibration = 55.0;
 
+// 3D Globals
+let cube, renderer, camera, scene;
+let is3DInitialized = false;
+
 // Config
 const SEQUENCE_LENGTH = 10;
 const ANOMALY_THRESHOLD = 0.65;
@@ -40,27 +44,33 @@ async function initPitWall() {
     // 2. Initialize Charts
     initCharts();
 
-    // 3. Load AI Models
+    // 3. Initialize 3D (With Delay to ensure DOM is ready)
+    setTimeout(() => {
+        init3D();
+    }, 500);
+
+    // 4. Load AI Models
     try {
         modelAnomaly = await tf.loadLayersModel('./models/model_anomaly_v3/model.json');
         modelSimulator = await tf.loadLayersModel('./models/model_simulator_v2/model.json');
         console.log("✅ Local AI Models Loaded");
     } catch (e) { console.warn("Using Math Fallback"); }
 
-    // 4. Bind Inputs
+    // 5. Bind Frontend Simulation Button
     const btnTest = document.getElementById('btnTest');
     if (btnTest) btnTest.onclick = startTestRun;
 
+    // 6. Bind Sliders
     const inputThickness = document.getElementById('inputThickness');
     const inputLoad = document.getElementById('inputLoad');
     if(inputThickness) inputThickness.oninput = updateSimulation;
     if(inputLoad) inputLoad.oninput = updateSimulation;
 
-    // 5. Bind Radio
+    // 7. Bind Radio
     const btnRadio = document.getElementById('btnRadio');
     if (btnRadio) btnRadio.onclick = toggleRadio;
 
-    // 6. Background Processes
+    // 8. Background Processes
     setInterval(updateDashboardStats, 2000);
     updateDashboardStats();
     setInterval(backgroundTelemetryFetch, 1000);
@@ -69,7 +79,86 @@ async function initPitWall() {
 }
 
 // ==========================================
-// 🎙️ PIT RADIO LOGIC (HARDENED KEEP-ALIVE)
+// 🧊 DIGITAL TWIN (THREE.JS)
+// ==========================================
+function init3D() {
+    const container = document.getElementById("canvas3d");
+    if (!container) return;
+    if (is3DInitialized) return;
+
+    // Setup Scene
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x091E42); 
+
+    // Camera
+    const width = container.clientWidth || 300;
+    const height = container.clientHeight || 180;
+    camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 1000);
+    camera.position.z = 3;
+
+    // Renderer
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(width, height);
+    container.appendChild(renderer.domElement);
+
+    // Create Cube
+    const geometry = new THREE.BoxGeometry(1.2, 1.2, 1.2);
+    const material = new THREE.MeshBasicMaterial({ color: 0x36B37E, wireframe: true, transparent: true, opacity: 0.8 });
+    cube = new THREE.Mesh(geometry, material);
+    scene.add(cube);
+
+    const innerGeo = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+    const innerMat = new THREE.MeshBasicMaterial({ color: 0x36B37E, transparent: true, opacity: 0.3 });
+    const innerCube = new THREE.Mesh(innerGeo, innerMat);
+    cube.add(innerCube); 
+
+    // Handle Window Resize
+    window.addEventListener('resize', () => {
+        if (!camera || !renderer) return;
+        const w = container.clientWidth;
+        const h = container.clientHeight;
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+        renderer.setSize(w, h);
+    });
+
+    is3DInitialized = true;
+    animate3D();
+}
+
+function animate3D() {
+    requestAnimationFrame(animate3D);
+    if (!cube) return;
+
+    // Link Physics to Vibration State
+    const vib = sharedState.vibration || 50;
+    let stress = Math.max(0, (vib - 50) / 40);
+    stress = Math.min(stress, 1.2);
+
+    // Shake
+    const shake = stress * 0.15; 
+    cube.position.x = (Math.random() - 0.5) * shake;
+    cube.position.y = (Math.random() - 0.5) * shake;
+
+    // Rotate
+    const rotSpeed = 0.01 + (stress * 0.05);
+    cube.rotation.x += rotSpeed;
+    cube.rotation.y += rotSpeed;
+
+    // Color
+    const targetColor = new THREE.Color();
+    if (stress > 0.8) targetColor.setHex(0xFF5630);
+    else if (stress > 0.4) targetColor.setHex(0xFFAB00);
+    else targetColor.setHex(0x36B37E);
+
+    cube.material.color.lerp(targetColor, 0.1);
+    cube.children[0].material.color.lerp(targetColor, 0.1);
+
+    renderer.render(scene, camera);
+}
+
+// ==========================================
+// 🎙️ PIT RADIO LOGIC
 // ==========================================
 let recognition;
 let isRadioActive = false;
@@ -77,80 +166,46 @@ let radioRestartTimer;
 
 function initRadioSystem() {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-        console.warn("⚠️ Browser does not support Web Speech API");
-        return null;
-    }
+    if (!SpeechRecognition) { console.warn("No Web Speech API"); return null; }
 
     const rec = new SpeechRecognition();
     rec.lang = 'en-US';
-    rec.continuous = true;      // Keep listening even after speaking
-    rec.interimResults = false; // Only process final sentences
+    rec.continuous = true;      
+    rec.interimResults = false; 
 
     rec.onstart = () => {
-        console.log("🎙️ Microphone Active");
         const btn = document.getElementById('btnRadio');
-        if (btn) {
-            btn.classList.add('listening');
-            btn.innerHTML = "🔴 CHANNEL OPEN";
-        }
+        if (btn) { btn.classList.add('listening'); btn.innerHTML = "🔴 CHANNEL OPEN"; }
     };
 
     rec.onresult = (event) => {
         const lastIdx = event.results.length - 1;
         const command = event.results[lastIdx][0].transcript.toLowerCase().trim();
-        console.log("base command:", command);
         processVoiceCommand(command);
     };
 
     rec.onerror = (event) => {
-        // Ignore common "timeout" errors to keep the channel open
-        if (event.error === 'no-speech' || event.error === 'network') {
-            console.warn("Radio Static (Ignored):", event.error);
-            return; // Don't stop
-        }
-        console.error("Radio Error:", event.error);
-        if (event.error === 'not-allowed') {
-            stopRadioSystem(); // Force stop if permission denied
-            alert("Microphone permission denied.");
-        }
+        if (event.error === 'no-speech' || event.error === 'network') return; 
+        if (event.error === 'not-allowed') { stopRadioSystem(); alert("Microphone denied."); }
     };
 
     rec.onend = () => {
-        console.log("🎙️ Microphone Disconnected");
-        // CRITICAL: If the user didn't turn it off, RESTART IT IMMEDIATELY
         if (isRadioActive) {
-            console.log("🔄 Keep-Alive: Restarting Radio...");
             clearTimeout(radioRestartTimer);
-            radioRestartTimer = setTimeout(() => {
-                try { rec.start(); } catch(e) { console.log("Restart race condition ignored"); }
-            }, 100); 
+            radioRestartTimer = setTimeout(() => { try { rec.start(); } catch(e) {} }, 100); 
         } else {
-            // User turned it off manually
             const btn = document.getElementById('btnRadio');
-            if (btn) {
-                btn.classList.remove('listening');
-                btn.innerHTML = "🎙️ PIT RADIO";
-            }
+            if (btn) { btn.classList.remove('listening'); btn.innerHTML = "🎙️ PIT RADIO"; }
         }
     };
-
     return rec;
 }
 
 function toggleRadio() {
-    // 1. Initialize if missing
     if (!recognition) recognition = initRadioSystem();
     if (!recognition) return;
-
-    if (isRadioActive) {
-        // TURN OFF
-        stopRadioSystem();
-    } else {
-        // TURN ON
-        isRadioActive = true;
-        try { recognition.start(); } catch(e) { console.error("Start error:", e); }
-    }
+    if (isRadioActive) stopRadioSystem();
+    else { isRadioActive = true; try { recognition.start(); } catch(e) {} }
 }
 
 function stopRadioSystem() {
@@ -160,44 +215,19 @@ function stopRadioSystem() {
 
 function processVoiceCommand(cmd) {
     const synth = window.speechSynthesis;
-    // Debounce: Cancel old speech so new commands take priority
     if (synth.speaking) synth.cancel();
-
     let replyText = "";
 
-    // 1. STATUS REPORT
-    if (cmd.includes("status") || cmd.includes("report") || cmd.includes("damage")) {
+    if (cmd.includes("status") || cmd.includes("report")) {
         const vib = sharedState.vibration.toFixed(1);
-        const anomaly = (sharedState.anomaly || 0).toFixed(2);
-        
-        if (sharedState.vibration > 60) {
-            replyText = `Critical Alert. Vibration at ${vib} Hertz. Anomaly score ${anomaly}. Check compliance immediately.`;
-        } else {
-            replyText = `Systems nominal. Vibration stable at ${vib} Hertz.`;
-        }
+        if (sharedState.vibration > 60) replyText = `Critical Alert. Vibration ${vib} Hz.`;
+        else replyText = `Systems nominal. Vibration ${vib} Hz.`;
     }
-    
-    // 2. TRIGGER FIX
-    else if (cmd.includes("box") || cmd.includes("fix") || cmd.includes("solution")) {
-        replyText = "Copy, box box. Analyzing solution patterns from organizational memory. Stand by.";
-    }
+    else if (cmd.includes("box") || cmd.includes("fix")) replyText = "Copy, box box. Analyzing solution.";
+    else if (cmd.includes("weather")) replyText = "Track dry. Temp 28.";
+    else if (cmd.length < 3) return; 
+    else replyText = "Command not recognized.";
 
-    // 3. WEATHER
-    else if (cmd.includes("weather") || cmd.includes("track")) {
-        replyText = "Track dry. Temperature 28 degrees. Simulation running standard patterns.";
-    }
-    
-    // 4. IGNORE SHORT NOISE
-    else if (cmd.length < 3) {
-        return; 
-    }
-    
-    // 5. UNKNOWN
-    else {
-        replyText = "Command not recognized. Repeat.";
-    }
-
-    // Speak
     if (replyText) {
         const utterance = new SpeechSynthesisUtterance(replyText);
         utterance.rate = 1.1; 
@@ -213,17 +243,15 @@ async function backgroundTelemetryFetch() {
     try {
         const now = Date.now();
         const latest = await bridge.invoke('fetchLiveTelemetry');
-        if (latest && latest.timestamp) {
-            if ((now - latest.timestamp * 1000) < 60000) {
-                sharedState.mode = "IOT";
-                sharedState.vibration = latest.vibration;
-                sharedState.temperature = latest.temperature;
-                sharedState.aeroLoad = latest.aero_load;
-                const statusEl = document.getElementById('connectionStatus');
-                if(statusEl) { statusEl.innerText = "📡 Live Data"; statusEl.style.color = "#579DFF"; }
-                if (!isSimulationRunning) startTestRun();
-                return;
-            }
+        if (latest && latest.timestamp && (now - latest.timestamp * 1000) < 60000) {
+            sharedState.mode = "IOT";
+            sharedState.vibration = latest.vibration;
+            sharedState.temperature = latest.temperature;
+            sharedState.aeroLoad = latest.aero_load;
+            const statusEl = document.getElementById('connectionStatus');
+            if(statusEl) { statusEl.innerText = "📡 Live Data"; statusEl.style.color = "#579DFF"; }
+            if (!isSimulationRunning) startTestRun();
+            return;
         }
     } catch (e) { }
     sharedState.mode = "MATH";
@@ -260,7 +288,7 @@ function simulateTelemetryLoop() {
         if (isChaosMode) vibration += (timeStep - 60) * 0.8 + (Math.random() * 5); 
     }
 
-    // Store for Voice
+    // Feeds 3D
     sharedState.vibration = vibration;
 
     telemetryChart.data.labels.shift(); telemetryChart.data.labels.push('');
@@ -272,7 +300,7 @@ function simulateTelemetryLoop() {
         anomalyScore = (vibration - 60) / 30; 
         anomalyScore = Math.min(Math.max(anomalyScore, 0.1), 1.0);
     }
-    sharedState.anomaly = anomalyScore; // Store for Voice
+    sharedState.anomaly = anomalyScore; 
 
     const anomalyText = document.getElementById('anomalyText');
     if(anomalyText) {
@@ -294,17 +322,29 @@ function simulateTelemetryLoop() {
     }
 
     timeStep++;
-    if (sharedState.mode === "IOT") {
-        setTimeout(simulateTelemetryLoop, 50);
-    } else {
+    if (sharedState.mode === "IOT") setTimeout(simulateTelemetryLoop, 50);
+    else {
         if (timeStep < 400) setTimeout(simulateTelemetryLoop, 50);
         else stopSimulation();
     }
 }
 
+// ✅ RESET LOGIC ADDED HERE
 function stopSimulation() {
     isSimulationRunning = false;
     timeStep = 0;
+    
+    // 1. Reset Physics (Turns Cube Green)
+    sharedState.vibration = 50; 
+    sharedState.anomaly = 0.02;
+
+    // 2. Reset UI
+    const anomalyText = document.getElementById('anomalyText');
+    if(anomalyText) {
+        anomalyText.innerText = "0.00";
+        anomalyText.style.color = "#36B37E";
+    }
+
     const btn = document.getElementById('btnTest');
     if(btn) { btn.innerText = "START CRASH TEST"; btn.disabled = false; }
 }
