@@ -655,7 +655,56 @@ resolver.define("fetchDashboardData", async () => {
         feed: recentLogs
     };
 });
+// =====================================================
+// 🤖 ROVO AGENT RESOLVERS (The AI Interface)
+// =====================================================
 
+// Action 1: "What is the status?"
+export async function rovoGetStatus() {
+    const telemetry = await storage.get('live_telemetry');
+    
+    if (!telemetry) {
+        return { status: "Offline", message: "No telemetry stream detected." };
+    }
+
+    // Determine health based on your physics logic
+    const isCritical = telemetry.vibration > 60;
+    
+    return {
+        timestamp: new Date(telemetry.timestamp * 1000).toISOString(),
+        physics: {
+            vibration: `${telemetry.vibration.toFixed(2)} Hz`,
+            temperature: `${telemetry.temperature.toFixed(1)} °C`,
+            aero_load: `${telemetry.aero_load.toFixed(0)} N`
+        },
+        fleet_health: isCritical ? "CRITICAL FAILURE IMMINENT" : "NOMINAL",
+        active_protocols: isCritical ? ["Autonomous-Fix-Daemon", "FIA-Compliance-Check"] : ["Standard-Monitoring"]
+    };
+}
+
+// Action 2: "Explain the incident on KAN-42"
+export async function rovoGetIncident(payload) {
+    const { ticketKey } = payload; // Rovo extracts "KAN-42" from user chat automatically
+    
+    const specs = await storage.get(`specs_${ticketKey}`);
+    const fix = await storage.get(`fix_${ticketKey}`);
+
+    if (!specs || !fix) {
+        return { 
+            error: "No Data", 
+            message: `I haven't analyzed ${ticketKey} yet. Run the 'Start Crash Test' simulation first.` 
+        };
+    }
+
+    return {
+        ticket: ticketKey,
+        root_cause: fix.root_cause || "Resonance anomaly detected via IoT.",
+        telemetry_snapshot: specs.max_vibration,
+        ai_solution: fix.recommendation,
+        compliance_status: fix.compliance_note,
+        deployment: "Bitbucket PR Created & Confluence Spec Generated"
+    };
+}
 // Manifest Stubs
 export async function prescribeSolutionHandlerExport(payload) { return prescribeSolutionHandler(payload); }
 export async function run(event) { return {}; }

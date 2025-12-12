@@ -29,10 +29,8 @@ permissions:
         - 'https://esm.sh'
         - 'https://api.openai.com'
         - 'https://storage.googleapis.com'
-        
     images:
       - https://cdn-icons-png.flaticon.com
-    
 
 providers:
   auth:
@@ -48,15 +46,12 @@ providers:
         - repository
       actions:
         authorization:
-          # ✅ FIX 1: Points to the WEBSITE remote (not API)
           remote: bitbucket-website
           path: /site/oauth2/authorize
         exchange:
-          # ✅ FIX 2: Points to the WEBSITE remote
           remote: bitbucket-website
           path: /site/oauth2/access_token
         retrieveProfile:
-          # Keep this pointing to API
           remote: bitbucket-api
           path: /2.0/user
           resolvers:
@@ -67,50 +62,95 @@ providers:
 remotes:
   - key: bitbucket-api
     baseUrl: https://api.bitbucket.org
-  
-  # ✅ FIX 3: Added the Website URL for Login
   - key: bitbucket-website
     baseUrl: https://bitbucket.org
 
 modules:
+  # ✅ ROVO AGENT DEFINITION
+  rovo:agent:
+    - key: race-engineer-agent
+      name: Race Strategist
+      description: An autonomous F1 engineer that monitors telemetry and manages Jira incidents.
+      prompt: >
+        You are an elite F1 Race Engineer and DevOps Specialist.
+        Your job is to monitor vehicle telemetry and explain technical incidents to software teams.
+        
+        ALWAYS check the 'get-live-status' action first before answering.
+        
+        If vibration is > 60Hz, use a sense of urgency.
+        If vibration is < 60Hz, be calm and professional.
+        
+        When asked about fixes, refer to the autonomous Bitbucket PRs.
+      conversationStarters:
+        - "What is the current fleet status?"
+        - "Explain the latest anomaly on KAN-42."
+        - "Did the autonomous fix deploy successfully?"
+      actions:
+        - get-live-status
+        - get-incident-details
+
+  # ✅ ACTIONS FOR ROVO AGENT (FIXED VALIDATION)
+  action:
+    - key: get-live-status
+      function: agent-status-fn
+      actionType: function  # 👈 Added to fix validation error
+      name: Get Live Status
+      description: Fetches real-time IoT telemetry data (vibration, temperature) from the Pit Wall.
+      
+    - key: get-incident-details
+      function: agent-incident-fn
+      actionType: function  # 👈 Added to fix validation error
+      name: Get Incident Details
+      description: Retrieves the Root Cause Analysis and Fix logic for a specific Jira ticket.
+      inputs:
+        ticketKey:
+          title: "Jira Ticket Key"
+          type: string
+          required: true
+          description: "The Jira Issue Key (e.g., KAN-42)"
+
   confluence:contextMenu:
     - key: dictionary
       function: main
       title: Define word
+  
   webtrigger:
     - key: iot-telemetry-trigger
       function: ith
+
   function:
+    # ✅ ROVO AGENT HANDLERS
+    - key: agent-status-fn
+      handler: index.rovoGetStatus
+    - key: agent-incident-fn
+      handler: index.rovoGetIncident
+
+    # EXISTING FUNCTIONS
     - key: main
       handler: index.run
       providers:
         auth:
           - bitbucket-oauth-v2
-
     - key: main-resolver
       handler: index.mainResolver
       providers:
         auth:
           - bitbucket-oauth-v2
-
     - key: invoke-create-draft
       handler: index.invokeCreateDraft
       providers:
         auth:
           - bitbucket-oauth-v2
-
     - key: cddh
       handler: index.createDesignDraftHandler
       providers:
         auth:
           - bitbucket-oauth-v2
-
     - key: psh
       handler: index.prescribeSolutionHandler
       providers:
         auth:
           - bitbucket-oauth-v2
-
     - key: trigger-fn
       handler: index.triggerHandler
       providers:
@@ -133,9 +173,7 @@ modules:
       function: learning-fn
       events:
         - avi:jira:updated:issue
-  
 
-  # ✅ Global Page (The "Emergency Entrance" for Login)
   jira:globalPage:
     - key: pit-wall-global
       resource: pit-wall-resource
@@ -144,7 +182,6 @@ modules:
       title: 🏁 Pit Wall Auth
       icon: https://cdn-icons-png.flaticon.com/512/555/555646.png
 
-  # ✅ Issue Panel (The main UI on tickets)
   jira:issuePanel:
     - key: pit-wall-panel
       resource: pit-wall-resource
@@ -152,6 +189,7 @@ modules:
         function: main-resolver
       title: 🏁 Pit Wall
       icon: https://cdn-icons-png.flaticon.com/512/555/555646.png
+
   jira:dashboardGadget:
     - key: strategy-dashboard
       title: "🏎️ F1 Strategy Command"
@@ -171,7 +209,6 @@ extensions:
         - name: jiraTicketKey
           type: string
           required: true
-
     - key: action-prescribe-solution
       name: Prescribe Failure Solution
       description: Performs failure analysis and returns potential redesign guidance.

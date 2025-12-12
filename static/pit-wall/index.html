@@ -59,6 +59,7 @@
     <div class="nav-tabs">
         <button class="tab-btn active" onclick="switchTab('mission')">Strategy Command</button>
         <button class="tab-btn" onclick="switchTab('telemetry')">Sim & Telemetry</button>
+        <button class="tab-btn" onclick="switchTab('rovo-chat')">Rovo Agent (Beta)</button>
     </div>
 
     <div id="mission" class="view-section active">
@@ -168,6 +169,24 @@
                 <div style="flex: 1;">
                     <button id="btnTest" class="btn-primary" style="height: 40px;">START CRASH TEST</button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="rovo-chat" class="view-section">
+        <div class="card" style="height: 500px; display: flex; flex-direction: column;">
+            <h3>Race Strategist Agent (Rovo)</h3>
+            
+            <div id="chatHistory" style="flex: 1; background: #091E42; border: 1px solid #2C3E50; border-radius: 4px; padding: 15px; overflow-y: auto; margin-bottom: 15px; font-family: monospace; font-size: 13px;">
+                <div style="color: #8993A4; margin-bottom: 10px; border-bottom: 1px dashed #2C3E50; padding-bottom: 10px;">
+                    <strong>[SYSTEM]</strong> Rovo Agent Connected. Monitoring Fleet Telemetry...<br>
+                    <em>Try asking: "Status report" or "Analyze KAN-42"</em>
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 10px;">
+                <input type="text" id="chatInput" placeholder="Ask Rovo (e.g., 'Status report')" style="flex: 1; padding: 10px; border-radius: 4px; border: 1px solid #579DFF; background: #172B4D; color: white; outline: none;">
+                <button id="btnSendChat" class="btn-primary" style="width: 100px;">SEND</button>
             </div>
         </div>
     </div>

@@ -17,6 +17,7 @@ let is3DInitialized = false;
 // Config
 const SEQUENCE_LENGTH = 10;
 const ANOMALY_THRESHOLD = 0.65;
+const CURRENT_TICKET = "KAN-42"; // Simulated Context
 
 // SHARED STATE
 let sharedState = {
@@ -44,31 +45,40 @@ async function initPitWall() {
     // 2. Initialize Charts
     initCharts();
 
-    // 3. Initialize 3D (With Delay to ensure DOM is ready)
-    setTimeout(() => {
-        init3D();
-    }, 500);
+    // 3. Initialize 3D
+    setTimeout(() => { init3D(); }, 500);
 
     // 4. Load AI Models
     try {
         modelAnomaly = await tf.loadLayersModel('./models/model_anomaly_v3/model.json');
         modelSimulator = await tf.loadLayersModel('./models/model_simulator_v2/model.json');
-        console.log("✅ Local AI Models Loaded");
     } catch (e) { console.warn("Using Math Fallback"); }
 
-    // 5. Bind Frontend Simulation Button
+    // 5. Bind Inputs
     const btnTest = document.getElementById('btnTest');
     if (btnTest) btnTest.onclick = startTestRun;
 
-    // 6. Bind Sliders
     const inputThickness = document.getElementById('inputThickness');
     const inputLoad = document.getElementById('inputLoad');
     if(inputThickness) inputThickness.oninput = updateSimulation;
     if(inputLoad) inputLoad.oninput = updateSimulation;
 
-    // 7. Bind Radio
+    // 6. Bind Radio
     const btnRadio = document.getElementById('btnRadio');
     if (btnRadio) btnRadio.onclick = toggleRadio;
+
+    // 7. Bind Rovo Chat
+    const btnSendChat = document.getElementById('btnSendChat');
+    const inputChat = document.getElementById('chatInput');
+    if (btnSendChat) btnSendChat.onclick = () => sendRovoMessage(); // Fix PointerEvent bug
+    if (inputChat) {
+        inputChat.addEventListener("keypress", function(event) {
+            if (event.key === "Enter") {
+                event.preventDefault();
+                sendRovoMessage();
+            }
+        });
+    }
 
     // 8. Background Processes
     setInterval(updateDashboardStats, 2000);
@@ -79,6 +89,155 @@ async function initPitWall() {
 }
 
 // ==========================================
+// 🤖 ROVO SIMULATOR (SMARTER & BUG FREE)
+// ==========================================
+window.triggerRovoQuickAction = function(text) {
+    sendRovoMessage(text);
+};
+
+async function sendRovoMessage(overrideText = null) {
+    const input = document.getElementById('chatInput');
+    const history = document.getElementById('chatHistory');
+    if (!input || !history) return;
+
+    const userText = overrideText || input.value.trim();
+    if (!userText) return;
+
+    // 1. Show User Message
+    const userMsg = document.createElement('div');
+    userMsg.innerHTML = `<strong style="color: #579DFF;">YOU:</strong> ${userText}`;
+    userMsg.style.marginBottom = "10px";
+    userMsg.style.textAlign = "right";
+    history.appendChild(userMsg);
+    input.value = "";
+
+    // 2. Simulate "Thinking"
+    const loadingMsg = document.createElement('div');
+    loadingMsg.id = "loading-" + Date.now();
+    loadingMsg.innerHTML = `<em style="color: #8993A4; font-size: 11px;">Agent is analyzing telemetry...</em>`;
+    history.appendChild(loadingMsg);
+    history.scrollTop = history.scrollHeight;
+
+    await new Promise(r => setTimeout(r, 800)); // Sim network delay
+
+    // 3. GENERATE SMART RESPONSE
+    let responseHTML = "";
+    let isCritical = sharedState.vibration > 60;
+    const color = isCritical ? "#FF5630" : "#36B37E"; 
+    const bg = isCritical ? "rgba(255, 86, 48, 0.1)" : "rgba(54, 179, 126, 0.1)";
+
+    const txt = userText.toLowerCase();
+
+    // -- LOGIC TREE --
+    if (txt.includes("status") || txt.includes("report")) {
+        if (isCritical) {
+            responseHTML = `
+                <div style="color: ${color}; font-weight: bold;">🚨 CRITICAL ANOMALY DETECTED</div>
+                <div>Vibration: ${sharedState.vibration.toFixed(2)} Hz (Limit: 60Hz)</div>
+                <div>Status: <span style="background:${color}; color:white; padding:2px 6px; border-radius:4px; font-size:10px;">FAILURE IMMINENT</span></div>
+                <div style="margin-top:5px; font-size:11px;">I recommend immediate analysis of ${CURRENT_TICKET}.</div>
+            `;
+        } else {
+            responseHTML = `
+                <div style="color: ${color}; font-weight: bold;">✅ FLEET NOMINAL</div>
+                <div>Vibration: ${sharedState.vibration.toFixed(2)} Hz</div>
+                <div>All systems operating within normal parameters.</div>
+            `;
+        }
+    } 
+    else if (txt.includes("analyze") || txt.includes("incident") || txt.includes(CURRENT_TICKET.toLowerCase()) || txt.includes("kan")) {
+        // Smart Response for Incident
+        responseHTML = `
+            <div style="margin-bottom:5px;"><strong style="color:${color}">🔍 Incident Analysis: ${CURRENT_TICKET}</strong></div>
+            <ul style="margin:0; padding-left:20px; font-size:12px;">
+                <li><strong>Root Cause:</strong> Resonance Mismatch (${sharedState.vibration.toFixed(1)}Hz)</li>
+                <li><strong>AI Suggestion:</strong> Increase Strut Thickness (+3.5mm)</li>
+                <li><strong>Confidence:</strong> 99.8% (Based on Training Set)</li>
+            </ul>
+            <div style="margin-top:8px; font-size:11px;">
+                <strong>Next Step:</strong> Review Compliance or Auto-Fix?
+            </div>
+        `;
+    }
+    else if (txt.includes("fix") || txt.includes("solution") || txt.includes("pr")) {
+        responseHTML = `
+            <div><strong>🛠️ Autonomous Repair Protocol</strong></div>
+            <div>I have generated a JSON Spec Sheet and opened a Pull Request.</div>
+            <div style="margin-top:5px; font-size:11px; background:rgba(0,0,0,0.3); padding:5px; border-radius:4px;">
+                <code>Adjust material_thickness = 8.5mm</code><br>
+                <code>Set material_grade = Ti-64</code>
+            </div>
+            <div style="margin-top:5px;">
+                <a href="#" style="color:#579DFF; text-decoration:none;">🔗 bitbucket/pull-requests/59</a>
+            </div>
+        `;
+    }
+    else if (txt.includes("compliance") || txt.includes("regulations") || txt.includes("legal")) {
+        responseHTML = `
+            <div><strong>⚖️ FIA Compliance Check</strong></div>
+            <ul style="margin:0; padding-left:20px; font-size:12px;">
+                <li><strong>Article 3.4:</strong> Max Thickness 8.0mm <span style="color:#FFAB00;">(WARNING)</span></li>
+                <li><strong>Article 5.1:</strong> Max Weight 500g <span style="color:#36B37E;">(PASS)</span></li>
+            </ul>
+            <div style="margin-top:5px;">AI has capped the thickness at <strong>8.0mm</strong> to remain legal.</div>
+        `;
+    }
+    else {
+        responseHTML = `I am the Race Strategist Agent. I can help with:<br>
+        • "Fleet Status"<br>
+        • "Analyze ${CURRENT_TICKET}"<br>
+        • "Show Auto-Fix"<br>
+        • "Check Compliance"`;
+    }
+
+    // 4. Render Agent Response
+    const loadingEl = document.getElementById(loadingMsg.id);
+    if(loadingEl) history.removeChild(loadingEl);
+
+    const agentContainer = document.createElement('div');
+    agentContainer.style.marginBottom = "15px";
+    agentContainer.style.padding = "10px";
+    agentContainer.style.borderRadius = "0 8px 8px 8px";
+    agentContainer.style.backgroundColor = bg;
+    agentContainer.style.borderLeft = `3px solid ${color}`;
+    
+    agentContainer.innerHTML = `
+        <div style="font-size:10px; color:${color}; margin-bottom:4px; font-weight:bold;">ROVO AGENT</div>
+        <div style="color: #B3BAC5; line-height: 1.4;">${responseHTML}</div>
+    `;
+    
+    // Add Smart Chips based on context
+    const chipContainer = document.createElement('div');
+    chipContainer.style.marginTop = "8px";
+    chipContainer.style.display = "flex";
+    chipContainer.style.gap = "5px";
+    chipContainer.style.flexWrap = "wrap";
+
+    if (isCritical && txt.includes("status")) {
+        addChip(chipContainer, `Analyze ${CURRENT_TICKET}`, color);
+    } 
+    else if (txt.includes("analyze") || txt.includes("kan")) {
+        addChip(chipContainer, "Show Auto-Fix", "#579DFF");
+        addChip(chipContainer, "Check Compliance", "#FFAB00");
+    }
+
+    if (chipContainer.children.length > 0) agentContainer.appendChild(chipContainer);
+
+    history.appendChild(agentContainer);
+    history.scrollTop = history.scrollHeight;
+}
+
+function addChip(container, text, color) {
+    const btn = document.createElement('button');
+    btn.innerText = text;
+    btn.onclick = () => window.triggerRovoQuickAction(text);
+    btn.style.cssText = `background:transparent; border:1px solid ${color}; color:${color}; padding:4px 8px; border-radius:12px; cursor:pointer; font-size:10px; transition:all 0.2s;`;
+    btn.onmouseover = () => { btn.style.background = color; btn.style.color = "#091E42"; };
+    btn.onmouseout = () => { btn.style.background = "transparent"; btn.style.color = color; };
+    container.appendChild(btn);
+}
+
+// ==========================================
 // 🧊 DIGITAL TWIN (THREE.JS)
 // ==========================================
 function init3D() {
@@ -86,22 +245,18 @@ function init3D() {
     if (!container) return;
     if (is3DInitialized) return;
 
-    // Setup Scene
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x091E42); 
 
-    // Camera
     const width = container.clientWidth || 300;
     const height = container.clientHeight || 180;
     camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 1000);
     camera.position.z = 3;
 
-    // Renderer
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setSize(width, height);
     container.appendChild(renderer.domElement);
 
-    // Create Cube
     const geometry = new THREE.BoxGeometry(1.2, 1.2, 1.2);
     const material = new THREE.MeshBasicMaterial({ color: 0x36B37E, wireframe: true, transparent: true, opacity: 0.8 });
     cube = new THREE.Mesh(geometry, material);
@@ -112,7 +267,6 @@ function init3D() {
     const innerCube = new THREE.Mesh(innerGeo, innerMat);
     cube.add(innerCube); 
 
-    // Handle Window Resize
     window.addEventListener('resize', () => {
         if (!camera || !renderer) return;
         const w = container.clientWidth;
@@ -130,22 +284,18 @@ function animate3D() {
     requestAnimationFrame(animate3D);
     if (!cube) return;
 
-    // Link Physics to Vibration State
     const vib = sharedState.vibration || 50;
     let stress = Math.max(0, (vib - 50) / 40);
     stress = Math.min(stress, 1.2);
 
-    // Shake
     const shake = stress * 0.15; 
     cube.position.x = (Math.random() - 0.5) * shake;
     cube.position.y = (Math.random() - 0.5) * shake;
 
-    // Rotate
     const rotSpeed = 0.01 + (stress * 0.05);
     cube.rotation.x += rotSpeed;
     cube.rotation.y += rotSpeed;
 
-    // Color
     const targetColor = new THREE.Color();
     if (stress > 0.8) targetColor.setHex(0xFF5630);
     else if (stress > 0.4) targetColor.setHex(0xFFAB00);
@@ -288,7 +438,6 @@ function simulateTelemetryLoop() {
         if (isChaosMode) vibration += (timeStep - 60) * 0.8 + (Math.random() * 5); 
     }
 
-    // Feeds 3D
     sharedState.vibration = vibration;
 
     telemetryChart.data.labels.shift(); telemetryChart.data.labels.push('');
@@ -329,16 +478,13 @@ function simulateTelemetryLoop() {
     }
 }
 
-// ✅ RESET LOGIC ADDED HERE
 function stopSimulation() {
     isSimulationRunning = false;
     timeStep = 0;
     
-    // 1. Reset Physics (Turns Cube Green)
     sharedState.vibration = 50; 
     sharedState.anomaly = 0.02;
 
-    // 2. Reset UI
     const anomalyText = document.getElementById('anomalyText');
     if(anomalyText) {
         anomalyText.innerText = "0.00";
