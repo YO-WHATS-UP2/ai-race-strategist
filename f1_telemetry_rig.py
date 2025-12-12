@@ -4,25 +4,28 @@ import math
 import random
 import json
 
-# ⚠️ REPLACE THIS WITH YOUR WEBTRIGGER URL (See Step 5)
+# ⚠️ REPLACE THIS WITH YOUR WEBTRIGGER URL
 WEBHOOK_URL = "https://c7104b49-0a91-46dc-b2c6-de1b156b9b96.hello.atlassian-dev.net/x1/tkzYBpzjL0lYSzz4p7uWA2lXyoU"
-
 
 def generate_telemetry(step):
     # BASELINE: 50Hz (Safe)
     base_vibration = 50.0 
     
-    # 1. NORMAL PHASE (Frames 0-40)
-    if step < 40:
+    # 🔥 CHANGE: Crash now starts at Frame 15 (approx 7.5 seconds in)
+    CRASH_START_FRAME = 15
+
+    # 1. NORMAL PHASE
+    if step < CRASH_START_FRAME:
         # smooth sine wave + tiny noise
         noise = random.uniform(-0.5, 0.5)
         vibration = base_vibration + math.sin(step * 0.2) * 1.5 + noise
         
-    # 2. THE CRASH (Frames 40+)
+    # 2. THE CRASH
     else:
         print("⚠️  INJECTING ANOMALY...")
         # Exponential growth to failure
-        crash_intensity = min((step - 40) * 2.0, 45.0) # Cap at +45Hz
+        # We adjust the math to subtract 15 instead of 40 so the math works correctly
+        crash_intensity = min((step - CRASH_START_FRAME) * 2.0, 45.0) # Cap at +45Hz
         
         # Vibration jumps to ~95Hz
         vibration = base_vibration + crash_intensity + random.uniform(-1.0, 1.0)
@@ -41,6 +44,7 @@ def generate_telemetry(step):
 def main():
     print(f"🏎️  Starting F1 Telemetry Rig...")
     print(f"📡 Target: {WEBHOOK_URL}")
+    print(f"⏱️  Crash scheduled for T-minus 7.5 seconds (Frame 15)...")
     print("------------------------------------------------")
 
     step = 0
@@ -60,7 +64,7 @@ def main():
                 print(f"Frame {step}: ❌ Connection Error: {e}")
 
             step += 1
-            time.sleep(0.5) # Send every 500ms (Matches dashboard poll rate)
+            time.sleep(0.5) # Send every 500ms
 
     except KeyboardInterrupt:
         print("\n🛑 Telemetry Rig Stopped.")
