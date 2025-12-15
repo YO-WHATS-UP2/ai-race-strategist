@@ -8,10 +8,7 @@ import json
 WEBHOOK_URL = "https://c7104b49-0a91-46dc-b2c6-de1b156b9b96.hello.atlassian-dev.net/x1/tkzYBpzjL0lYSzz4p7uWA2lXyoU"
 
 def generate_telemetry(step):
-    # BASELINE: 50Hz (Safe)
     base_vibration = 50.0 
-    
-    # 🔥 CHANGE: Crash now starts at Frame 15 (approx 7.5 seconds in)
     CRASH_START_FRAME = 15
 
     # 1. NORMAL PHASE
@@ -23,11 +20,8 @@ def generate_telemetry(step):
     # 2. THE CRASH
     else:
         print("⚠️  INJECTING ANOMALY...")
-        # Exponential growth to failure
-        # We adjust the math to subtract 15 instead of 40 so the math works correctly
-        crash_intensity = min((step - CRASH_START_FRAME) * 2.0, 45.0) # Cap at +45Hz
+        crash_intensity = min((step - CRASH_START_FRAME) * 2.0, 45.0) 
         
-        # Vibration jumps to ~95Hz
         vibration = base_vibration + crash_intensity + random.uniform(-1.0, 1.0)
 
     # 3. OTHER SENSORS

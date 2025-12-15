@@ -187,7 +187,7 @@ modules:
       resource: pit-wall-resource
       resolver:
         function: main-resolver
-      title: 🏁 Pit Wall
+      title: 🏁 Pit Wall (real)
       icon: https://cdn-icons-png.flaticon.com/512/555/555646.png
 
   jira:dashboardGadget:

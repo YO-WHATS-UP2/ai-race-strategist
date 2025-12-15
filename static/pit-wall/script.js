@@ -17,8 +17,7 @@ let is3DInitialized = false;
 // Config
 const SEQUENCE_LENGTH = 10;
 const ANOMALY_THRESHOLD = 0.65;
-const CURRENT_TICKET = "KAN-42"; // Simulated Context
-
+const CURRENT_TICKET = "KAN-42"; 
 // SHARED STATE
 let sharedState = {
     mode: "MATH",
@@ -95,15 +94,37 @@ window.triggerRovoQuickAction = function(text) {
     sendRovoMessage(text);
 };
 
+// ==========================================
+// 🤖 ROVO SIMULATOR (FIXED: Dynamic Ticket & Link)
+// ==========================================
+// ==========================================
+// 🤖 ROVO SIMULATOR (FINAL: Robust Ticket Logic)
+// ==========================================
 async function sendRovoMessage(overrideText = null) {
     const input = document.getElementById('chatInput');
     const history = document.getElementById('chatHistory');
     if (!input || !history) return;
 
-    const userText = overrideText || input.value.trim();
+    // 1. Get User Input
+    let userText = typeof overrideText === 'string' ? overrideText : input.value.trim();
     if (!userText) return;
 
-    // 1. Show User Message
+    // 2. SMART TICKET DETECTION (Case Insensitive)
+    // Matches: "kan-54", "KAN-54", "kan 54", "KAN54"
+    const ticketMatch = userText.match(/([a-z]+)[-\s]?(\d+)/i);
+    
+    let activeTicket = CURRENT_TICKET; // Default fallback
+    let ticketNumber = "80"; // Default PR ID
+
+    if (ticketMatch) {
+        // Standardize: "kan" -> "KAN" + "-" + "54"
+        const projectKey = ticketMatch[1].toUpperCase();
+        const issueId = ticketMatch[2];
+        activeTicket = `${projectKey}-${issueId}`;
+        ticketNumber = issueId; // Use the ticket number for the PR link logic (optional)
+    }
+
+    // 3. Render User Message
     const userMsg = document.createElement('div');
     userMsg.innerHTML = `<strong style="color: #579DFF;">YOU:</strong> ${userText}`;
     userMsg.style.marginBottom = "10px";
@@ -111,16 +132,16 @@ async function sendRovoMessage(overrideText = null) {
     history.appendChild(userMsg);
     input.value = "";
 
-    // 2. Simulate "Thinking"
+    // 4. Simulate Thinking
     const loadingMsg = document.createElement('div');
     loadingMsg.id = "loading-" + Date.now();
     loadingMsg.innerHTML = `<em style="color: #8993A4; font-size: 11px;">Agent is analyzing telemetry...</em>`;
     history.appendChild(loadingMsg);
     history.scrollTop = history.scrollHeight;
 
-    await new Promise(r => setTimeout(r, 800)); // Sim network delay
+    await new Promise(r => setTimeout(r, 800));
 
-    // 3. GENERATE SMART RESPONSE
+    // 5. GENERATE RESPONSE
     let responseHTML = "";
     let isCritical = sharedState.vibration > 60;
     const color = isCritical ? "#FF5630" : "#36B37E"; 
@@ -128,14 +149,14 @@ async function sendRovoMessage(overrideText = null) {
 
     const txt = userText.toLowerCase();
 
-    // -- LOGIC TREE --
+    // --- LOGIC TREE ---
     if (txt.includes("status") || txt.includes("report")) {
         if (isCritical) {
             responseHTML = `
                 <div style="color: ${color}; font-weight: bold;">🚨 CRITICAL ANOMALY DETECTED</div>
                 <div>Vibration: ${sharedState.vibration.toFixed(2)} Hz (Limit: 60Hz)</div>
                 <div>Status: <span style="background:${color}; color:white; padding:2px 6px; border-radius:4px; font-size:10px;">FAILURE IMMINENT</span></div>
-                <div style="margin-top:5px; font-size:11px;">I recommend immediate analysis of ${CURRENT_TICKET}.</div>
+                <div style="margin-top:5px; font-size:11px;">I recommend immediate analysis of ${activeTicket}.</div>
             `;
         } else {
             responseHTML = `
@@ -145,10 +166,10 @@ async function sendRovoMessage(overrideText = null) {
             `;
         }
     } 
-    else if (txt.includes("analyze") || txt.includes("incident") || txt.includes(CURRENT_TICKET.toLowerCase()) || txt.includes("kan")) {
-        // Smart Response for Incident
+    else if (txt.includes("analyze") || txt.includes("incident") || ticketMatch) {
+        // ✅ Uses the detected 'activeTicket' (e.g. KAN-54)
         responseHTML = `
-            <div style="margin-bottom:5px;"><strong style="color:${color}">🔍 Incident Analysis: ${CURRENT_TICKET}</strong></div>
+            <div style="margin-bottom:5px;"><strong style="color:${color}">🔍 Incident Analysis: ${activeTicket}</strong></div>
             <ul style="margin:0; padding-left:20px; font-size:12px;">
                 <li><strong>Root Cause:</strong> Resonance Mismatch (${sharedState.vibration.toFixed(1)}Hz)</li>
                 <li><strong>AI Suggestion:</strong> Increase Strut Thickness (+3.5mm)</li>
@@ -160,6 +181,8 @@ async function sendRovoMessage(overrideText = null) {
         `;
     }
     else if (txt.includes("fix") || txt.includes("solution") || txt.includes("pr")) {
+        // ✅ LINK LOGIC: Defaults to PR #80 (your real one), or uses ticket # if you prefer
+        // Currently set to always use your REAL link for safety.
         responseHTML = `
             <div><strong>🛠️ Autonomous Repair Protocol</strong></div>
             <div>I have generated a JSON Spec Sheet and opened a Pull Request.</div>
@@ -168,11 +191,13 @@ async function sendRovoMessage(overrideText = null) {
                 <code>Set material_grade = Ti-64</code>
             </div>
             <div style="margin-top:5px;">
-                <a href="#" style="color:#579DFF; text-decoration:none;">🔗 bitbucket/pull-requests/59</a>
+                <a href="https://bitbucket.org/sairam-bisoyi/ai-race-strategist-repo/pull-requests/80" target="_blank" style="color:#579DFF; text-decoration:none; font-weight:bold;">
+                   🔗 bitbucket/.../pull-requests/80
+                </a>
             </div>
         `;
     }
-    else if (txt.includes("compliance") || txt.includes("regulations") || txt.includes("legal")) {
+    else if (txt.includes("compliance") || txt.includes("regulations")) {
         responseHTML = `
             <div><strong>⚖️ FIA Compliance Check</strong></div>
             <ul style="margin:0; padding-left:20px; font-size:12px;">
@@ -185,44 +210,34 @@ async function sendRovoMessage(overrideText = null) {
     else {
         responseHTML = `I am the Race Strategist Agent. I can help with:<br>
         • "Fleet Status"<br>
-        • "Analyze ${CURRENT_TICKET}"<br>
-        • "Show Auto-Fix"<br>
-        • "Check Compliance"`;
+        • "Analyze ${activeTicket}"<br>
+        • "Show Auto-Fix"`;
     }
 
-    // 4. Render Agent Response
+    // Render Agent Response
     const loadingEl = document.getElementById(loadingMsg.id);
     if(loadingEl) history.removeChild(loadingEl);
 
     const agentContainer = document.createElement('div');
-    agentContainer.style.marginBottom = "15px";
-    agentContainer.style.padding = "10px";
-    agentContainer.style.borderRadius = "0 8px 8px 8px";
-    agentContainer.style.backgroundColor = bg;
-    agentContainer.style.borderLeft = `3px solid ${color}`;
+    agentContainer.style.cssText = `margin-bottom: 15px; padding: 10px; border-radius: 0 8px 8px 8px; background-color: ${bg}; border-left: 3px solid ${color};`;
     
     agentContainer.innerHTML = `
         <div style="font-size:10px; color:${color}; margin-bottom:4px; font-weight:bold;">ROVO AGENT</div>
         <div style="color: #B3BAC5; line-height: 1.4;">${responseHTML}</div>
     `;
     
-    // Add Smart Chips based on context
     const chipContainer = document.createElement('div');
-    chipContainer.style.marginTop = "8px";
-    chipContainer.style.display = "flex";
-    chipContainer.style.gap = "5px";
-    chipContainer.style.flexWrap = "wrap";
+    chipContainer.style.cssText = "margin-top: 8px; display: flex; gap: 5px; flex-wrap: wrap;";
 
     if (isCritical && txt.includes("status")) {
-        addChip(chipContainer, `Analyze ${CURRENT_TICKET}`, color);
+        addChip(chipContainer, `Analyze ${activeTicket}`, color);
     } 
-    else if (txt.includes("analyze") || txt.includes("kan")) {
+    else if (txt.includes("analyze") || ticketMatch) {
         addChip(chipContainer, "Show Auto-Fix", "#579DFF");
         addChip(chipContainer, "Check Compliance", "#FFAB00");
     }
 
     if (chipContainer.children.length > 0) agentContainer.appendChild(chipContainer);
-
     history.appendChild(agentContainer);
     history.scrollTop = history.scrollHeight;
 }
